@@ -1,5 +1,13 @@
 // Package minitui provides a lightweight TUI for coding agents with streaming
 // output, multi-line input, markdown rendering, and a status bar.
+//
+// Rendering model:
+//   - The entire terminal screen is a virtual canvas (live-rendered).
+//   - Output that fits on screen is rendered via absolute positioning.
+//   - When output exceeds the visible area, the oldest lines are "committed"
+//     to the terminal scrollback via a temporary scroll region, keeping them
+//     accessible with native terminal scrolling.
+//   - The input box and status bar are always redrawn at the bottom.
 package minitui
 
 import (
@@ -43,30 +51,19 @@ const (
 	EventInterrupt                  // user pressed Ctrl+C
 )
 
-// Event is sent when the user submits input, resizes the terminal, or interrupts.
+// Event is sent on the event channel when subscribed.
 type Event struct {
 	Type   EventType
-	Input  string // valid for EventSubmit
-	Width  int    // valid for EventResize
+	Input  string
+	Width  int
 	Height int
 }
 
-// Config holds optional settings for the TUI.
+// Config holds optional settings.
 type Config struct {
-	// EventCh: if non-nil, events are sent here instead of ReadLine blocking.
-	// The channel must be buffered or the caller must drain it promptly.
-	EventCh chan<- Event
-
-	// RenderLine: custom markdown-to-ANSI renderer.  Receives one raw line
-	// and returns the ANSI-styled version.  When nil, the built-in renderer
-	// is used (supports headings, **bold**, *italic*, `code`, tables).
-	RenderLine func(raw string) string
-
-	// BorderColor is an ANSI escape for the input-box border lines, e.g.
-	// "\x1b[34m" for blue.  Must include a reset if needed.
-	BorderColor string
-
-	// MaxInputRows overrides the default maximum input box height.
+	EventCh      chan<- Event
+	RenderLine   func(string) string
+	BorderColor  string
 	MaxInputRows int
 }
 
@@ -80,41 +77,39 @@ type TUI struct {
 	width    int
 	height   int
 
-	// scroll region: output scrolls within rows [0 … scrollBottom].
-	// Rows below are the fixed input box + status bar.
-	scrollBottom int
+	// Output buffer: all ANSI-rendered screen lines ever written.
+	outAnsi  []string
+	// pushed counts how many lines have been committed to terminal scrollback.
+	pushed   int
 
-	// output state
 	pendingRaw  []byte
 	inCodeBlock bool
 	tableBuf    []string
 
-	// input editor
+	// Input editor.
 	inLines     [][]rune
 	inCursorRow int
 	inCursorCol int
 	inHeight    int
 	inScrollRow int
 
-	// status bar
+	// Status bar.
 	statusText  string
 	statusStyle StatusStyle
 
-	// configuration
+	// Configuration.
 	eventCh      chan<- Event
 	customRender func(string) string
 	borderColor  string
 	maxInputRows int
 
-	// keyboard
+	// Keyboard.
 	keyBuf []byte
 	sigCh  chan os.Signal
 }
 
 // New creates a TUI with default settings.
-func New() (*TUI, error) {
-	return NewWithConfig(Config{})
-}
+func New() (*TUI, error) { return NewWithConfig(Config{}) }
 
 // NewWithConfig creates a TUI with custom configuration.
 func NewWithConfig(cfg Config) (*TUI, error) {
@@ -141,88 +136,85 @@ func NewWithConfig(cfg Config) (*TUI, error) {
 	}
 	bc := cfg.BorderColor
 	if bc == "" {
-		bc = "\x1b[2m" // dim by default
+		bc = "\x1b[2m"
 	}
 
 	t := &TUI{
-		stdinFd:   stdinFd, stdoutFd: stdoutFd,
-		oldState:  oldState, width: w, height: h,
-		inLines:   [][]rune{{}}, inHeight: 1,
-		keyBuf:    make([]byte, 4096),
-		sigCh:     make(chan os.Signal, 1),
-		eventCh:   cfg.EventCh,
+		stdinFd:      stdinFd, stdoutFd: stdoutFd,
+		oldState:     oldState, width: w, height: h,
+		inLines:      [][]rune{{}}, inHeight: 1,
+		keyBuf:       make([]byte, 4096),
+		sigCh:        make(chan os.Signal, 1),
+		eventCh:      cfg.EventCh,
 		customRender: cfg.RenderLine,
 		borderColor:  bc,
 		maxInputRows: maxRows,
 	}
 
-	t.recalcScrollBottom()
-
-	fmt.Fprint(os.Stdout, "\x1b[?2004h\x1b[>1u\x1b[>4;2m") // paste + kitty + xterm
-	fmt.Fprint(os.Stdout, "\x1b[?25l")                        // hide cursor
-	t.setScrollRegion()
+	fmt.Fprint(os.Stdout, "\x1b[?2004h\x1b[>1u\x1b[>4;2m")
+	fmt.Fprint(os.Stdout, "\x1b[?25l")
+	fmt.Fprint(os.Stdout, "\x1b[r") // full-screen scroll region (virtual rendering)
 	signal.Notify(t.sigCh, syscall.SIGWINCH)
 
-	// Draw initial UI.
-	t.renderInputBox()
-	t.renderStatus()
-	t.showCursor()
-
+	t.fullDraw()
 	return t, nil
 }
 
-// Close restores the terminal. Call once when done.
+// Close restores the terminal.
 func (t *TUI) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.resetScrollRegion()
+	fmt.Fprint(os.Stdout, "\x1b[r") // reset scroll region
 	fmt.Fprint(os.Stdout, "\x1b[?2004l\x1b[<u\x1b[>4;0m\x1b[?25h")
 	fmt.Fprint(os.Stdout, "\x1b[2J\x1b[H")
 	term.Restore(t.stdinFd, t.oldState)
 	signal.Stop(t.sigCh)
 }
 
-// ── scroll region ────────────────────────────────────────────────
-
-func (t *TUI) recalcScrollBottom() {
-	t.scrollBottom = t.height - t.inHeight - 4
-}
-
-func (t *TUI) setScrollRegion() {
-	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", t.scrollBottom+1)
-}
-
-func (t *TUI) resetScrollRegion() {
-	fmt.Fprint(os.Stdout, "\x1b[r")
-}
-
 // ── layout ───────────────────────────────────────────────────────
 
-func (t *TUI) inTopBorder() int   { return t.scrollBottom + 1 }
-func (t *TUI) inContentStart() int { return t.scrollBottom + 2 }
-func (t *TUI) inBotBorder() int    { return t.scrollBottom + 2 + t.inHeight }
-func (t *TUI) statusRow() int      { return t.height - 1 }
+func (t *TUI) outputRows() int { return t.height - t.inHeight - 3 }
+func (t *TUI) inTopBorder() int  { return t.outputRows() + 1 }
+func (t *TUI) inContentStart() int { return t.inTopBorder() + 1 }
+func (t *TUI) inBotBorder() int { return t.inContentStart() + t.inHeight }
+func (t *TUI) statusRow() int  { return t.height - 1 }
 
-// ── cursor ───────────────────────────────────────────────────────
+// ── full draw ────────────────────────────────────────────────────
 
-// showCursor moves the cursor to the input box and makes it visible.
-func (t *TUI) showCursor() {
-	if t.inCursorRow >= 0 && t.inCursorRow < len(t.inLines) {
-		cr := t.inContentStart() + (t.inCursorRow - t.inScrollRow)
-		cc := 1 + runeDisplayWidth(string(t.inLines[t.inCursorRow][:t.inCursorCol]))
-		fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[?25h", cr+1, cc)
+func (t *TUI) fullDraw() {
+	t.pushed = 0 // reset — all lines are re-rendered on screen
+	fmt.Fprint(os.Stdout, "\x1b[H\x1b[J")
+
+	t.renderOutputScreen()
+	t.renderInputBox()
+	t.renderStatus()
+	t.showCursor()
+}
+
+// renderOutputScreen renders the visible portion of the output buffer.
+func (t *TUI) renderOutputScreen() {
+	vis := t.outputRows()
+	start := len(t.outAnsi) - vis
+	if start < 0 {
+		start = 0
+	}
+	for i := 0; i < vis; i++ {
+		if i+start < len(t.outAnsi) {
+			t.writeRow(i, t.outAnsi[i+start])
+		} else {
+			t.writeRow(i, "")
+		}
 	}
 }
 
-// ── output (streaming, uses scroll region) ───────────────────────
+// ── incremental output (on Write) ────────────────────────────────
 
-// Write appends data to the output area. It uses the terminal's scroll region
-// so history naturally scrolls into the terminal scrollback buffer.
-// Safe for concurrent use.
+// Write appends data to the output area.  Safe for concurrent use.
 func (t *TUI) Write(data []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.appendOutput(data)
+	t.renderAfterWrite()
 	return len(data), nil
 }
 
@@ -246,7 +238,7 @@ func (t *TUI) emitLine(raw string) {
 	}
 	if isCodeFence(raw) {
 		t.inCodeBlock = !t.inCodeBlock
-		t.writeToScroll(t.renderLine(raw, nil, true))
+		t.appendRendered(t.renderLine(raw, nil, true))
 		return
 	}
 	var ansi string
@@ -255,41 +247,60 @@ func (t *TUI) emitLine(raw string) {
 	} else {
 		ansi = t.renderLine(raw, &t.tableBuf, false)
 	}
-	t.writeToScroll(ansi)
+	t.appendRendered(ansi)
 }
 
 func (t *TUI) flushTable() {
 	if len(t.tableBuf) < 2 || !isTableSep(t.tableBuf[1]) {
 		for _, l := range t.tableBuf {
-			t.writeToScroll(t.renderLine(l, nil, false))
+			t.appendRendered(t.renderLine(l, nil, false))
 		}
 	} else {
 		rendered := renderTable(t.tableBuf, t.width)
-		t.writeToScroll(rendered)
+		for _, line := range strings.Split(rendered, "\n") {
+			t.outAnsi = append(t.outAnsi, line)
+		}
 	}
 	t.tableBuf = nil
 }
 
-// writeToScroll writes content to the bottom of the scroll region,
-// causing the terminal to scroll the output area naturally.
-// writeToScroll writes content to the bottom of the scroll region.
-// Each line must use \r\n so the cursor returns to column 1 after scrolling.
-func (t *TUI) writeToScroll(s string) {
-	if s == "" {
-		return
+// appendRendered adds a rendered line (may be empty for buffered table lines).
+func (t *TUI) appendRendered(s string) {
+	if s != "" {
+		t.outAnsi = append(t.outAnsi, s)
 	}
-	lines := strings.Split(s, "\n")
-	fmt.Fprintf(os.Stdout, "\x1b[s\x1b[%d;1H", t.scrollBottom+1)
-	for _, line := range lines {
-		fmt.Fprintf(os.Stdout, "%s\r\n", line)
-	}
-	fmt.Fprint(os.Stdout, "\x1b[u")
 }
 
-// ── ReadLine (blocking) ──────────────────────────────────────────
+// renderAfterWrite is called after new output lines have been appended.
+// It commits overflow to scrollback and renders the visible portion.
+func (t *TUI) renderAfterWrite() {
+	vis := t.outputRows()
+	if vis <= 0 {
+		return
+	}
 
-// ReadLine blocks until the user submits input (Enter without Shift).
-// Ctrl+C returns an error.  Other goroutines may call Write/SetStatus.
+	// 1. Commit lines that have scrolled off the visible area to terminal scrollback.
+	if len(t.outAnsi) > vis && t.pushed < len(t.outAnsi)-vis {
+		newLines := t.outAnsi[t.pushed : len(t.outAnsi)-vis]
+
+		// Use a temporary scroll region for the output area.
+		fmt.Fprintf(os.Stdout, "\x1b[1;%dr", vis)
+		fmt.Fprintf(os.Stdout, "\x1b[%d;1H", vis)
+		for _, line := range newLines {
+			fmt.Fprintf(os.Stdout, "%s\r\n", line)
+		}
+		// Restore full screen — no persistent scroll region.
+		fmt.Fprint(os.Stdout, "\x1b[r")
+
+		t.pushed = len(t.outAnsi) - vis
+	}
+
+	// 2. Render visible output rows.
+	t.renderOutputScreen()
+}
+
+// ── ReadLine ─────────────────────────────────────────────────────
+
 func (t *TUI) ReadLine() (string, error) {
 	t.showCursor()
 	for {
@@ -297,7 +308,7 @@ func (t *TUI) ReadLine() (string, error) {
 		case <-t.sigCh:
 			t.mu.Lock()
 			t.handleResize()
-			t.fullRedraw()
+			t.fullDraw()
 			t.mu.Unlock()
 		default:
 		}
@@ -358,30 +369,25 @@ func (t *TUI) clearInput() {
 	t.inCursorCol = 0
 	t.inScrollRow = 0
 	t.inHeight = 1
-	t.recalcScrollBottom()
-	t.setScrollRegion()
+	// Re-render output area since it now has more visible rows.
+	t.renderOutputScreen()
 }
 
 func (t *TUI) recalcInputHeight() {
 	n := len(t.inLines)
-	if n < 1 {
-		n = 1
-	}
-	if n > t.maxInputRows {
-		n = t.maxInputRows
-	}
+	if n < 1 { n = 1 }
+	if n > t.maxInputRows { n = t.maxInputRows }
 	prev := t.inHeight
 	if t.inHeight != n {
 		if n > prev {
-			// Push old output up so expanded input box doesn't cover it.
+			// Push old output up to make room for the expanded input box.
 			t.scrollOutputUp(n - prev)
 		}
 		t.inHeight = n
-		t.recalcScrollBottom()
-		t.setScrollRegion()
+		// Re-render: output area shrank/grew, input box moved.
+		t.renderOutputScreen()
 		t.renderInputBox()
 	}
-	// Adjust scroll so cursor is visible.
 	if t.inCursorRow < t.inScrollRow {
 		t.inScrollRow = t.inCursorRow
 	}
@@ -393,14 +399,14 @@ func (t *TUI) recalcInputHeight() {
 	}
 }
 
-// scrollOutputUp pushes existing output up by writing empty lines at the
-// bottom of the current scroll region, so the expanded input box has room.
 func (t *TUI) scrollOutputUp(rows int) {
-	fmt.Fprintf(os.Stdout, "\x1b[s\x1b[%d;1H", t.scrollBottom+1)
+	vis := t.outputRows()
+	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", vis)
+	fmt.Fprintf(os.Stdout, "\x1b[%d;1H", vis)
 	for i := 0; i < rows; i++ {
 		fmt.Fprint(os.Stdout, "\r\n")
 	}
-	fmt.Fprint(os.Stdout, "\x1b[u")
+	fmt.Fprint(os.Stdout, "\x1b[r")
 }
 
 func (t *TUI) handleResize() {
@@ -410,17 +416,17 @@ func (t *TUI) handleResize() {
 	}
 	t.width = w
 	t.height = h
-	t.recalcScrollBottom()
-	t.setScrollRegion()
 	if t.eventCh != nil {
 		select { case t.eventCh <- Event{Type: EventResize, Width: w, Height: h}: default: }
 	}
 }
 
-func (t *TUI) fullRedraw() {
-	t.resetScrollRegion()
-	t.setScrollRegion()
-	t.renderInputBox()
-	t.renderStatus()
-	t.showCursor()
+// ── cursor ───────────────────────────────────────────────────────
+
+func (t *TUI) showCursor() {
+	if t.inCursorRow >= 0 && t.inCursorRow < len(t.inLines) {
+		cr := t.inContentStart() + (t.inCursorRow - t.inScrollRow)
+		cc := 1 + runeDisplayWidth(string(t.inLines[t.inCursorRow][:t.inCursorCol]))
+		fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[?25h", cr+1, cc)
+	}
 }
