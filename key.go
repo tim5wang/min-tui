@@ -241,9 +241,24 @@ func parseNums(b []byte) []int {
 	return nums
 }
 
+// Key constants for KeyEvent.Special.
+const (
+	KeyUp    = keyUp
+	KeyDown  = keyDown
+	KeyLeft  = keyLeft
+	KeyRight = keyRight
+	KeyHome  = keyHome
+	KeyEnd   = keyEnd
+)
+
 // ── input editor ─────────────────────────────────────────────────
 
 func (t *TUI) processKey(k keyEvent) {
+	// ── popup mode ─────────────────────────────────────────
+	if len(t.popups) > 0 {
+		t.processPopupKey(k)
+		return
+	}
 	// ── select mode ─────────────────────────────────────────
 	if t.selectMode {
 		t.processSelectKey(k)

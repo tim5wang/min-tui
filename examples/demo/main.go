@@ -39,6 +39,32 @@ func main() {
 	}
 	defer func() { close(eventCh); tui.Close() }()
 
+	// Global key handler: Ctrl+P opens a popup.
+	tui.SetGlobalKeyHandler(func(k minitui.KeyEvent) bool {
+		if k.Ctrl && k.Rune == 'p' {
+			tui.PushPopup(minitui.Popup{
+				Title:  "Key Bindings",
+				Width:  40, Height: 12,
+				Render: func(w, h int) []string {
+					return []string{
+						"",
+						"  Enter       Submit input",
+						"  Shift+Enter Newline",
+						"  Ctrl+J      Newline (fallback)",
+						"  /           Slash commands",
+						"  Ctrl+P      This popup",
+						"  Ctrl+C      Quit",
+						"  Ctrl+U/K/W  Edit shortcuts",
+						"",
+						"  Press Esc to close",
+					}
+				},
+			})
+			return true
+		}
+		return false
+	})
+
 	// Register slash commands — type / in the input box to see the dropdown.
 	tui.RegisterCommand(minitui.SlashCommand{
 		Name: "help", Description: "显示帮助信息",

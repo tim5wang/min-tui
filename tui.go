@@ -164,6 +164,10 @@ type TUI struct {
 	selectIdx   int
 	selectCh    chan int
 
+	// Popup windows.
+	popups      []*popupState
+	globalKeyFn func(KeyEvent) bool
+
 	// Keyboard.
 	keyBuf []byte
 	sigCh  chan os.Signal
@@ -376,6 +380,11 @@ func (t *TUI) renderAfterWrite() {
 
 	// 2. Render visible output rows.
 	t.renderOutputScreen()
+
+	// Re-render popups if active (scroll may have shifted positions).
+	if len(t.popups) > 0 {
+		t.reRenderPopups()
+	}
 }
 
 // ── modal input (multi-turn slash commands) ─────────────────────
@@ -440,6 +449,20 @@ func (t *TUI) ReadLine() (string, error) {
 			return "", fmt.Errorf("minitui: read key: %w", err)
 		}
 		t.mu.Lock()
+
+		// Global key handler (useful for triggering popups).
+		if t.globalKeyFn != nil && t.globalKeyFn(keyEventFromInternal(key)) {
+			t.mu.Unlock()
+			continue
+		}
+
+		// Popup active: dispatch key to popup, skip normal processing.
+		if len(t.popups) > 0 {
+			t.processPopupKey(key)
+			t.mu.Unlock()
+			continue
+		}
+
 		if key.ctrl && (key.r == 'c' || key.r == 'C') {
 			t.mu.Unlock()
 			if t.eventCh != nil {
