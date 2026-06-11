@@ -38,14 +38,16 @@ const (
 
 // Popup configures an overlay window.
 type Popup struct {
-	Title       string
-	Width       int  // 0 = 80% of terminal width
-	Height      int  // 0 = auto-fit content
-	BorderColor string // ANSI escape for border/title, default "\x1b[36m" (cyan)
-	BgColor     string // ANSI escape for content background, default "\x1b[47;30m" (white bg)
-	Render      func(w, h int) []string          // returns content lines
-	OnKey       func(key KeyEvent) PopupAction   // handles key events
-	OnClose     func()                            // called after popup is removed
+	Title              string
+	Width              int  // 0 = 80% of terminal width
+	Height             int  // 0 = auto-fit content
+	BorderColor        string // border/title color when focused, default "\x1b[36m" (cyan)
+	BgColor            string // content background when focused, default "\x1b[47;30m" (white bg)
+	BorderColorUnfocus string // border/title color when unfocused, default dim cyan
+	BgColorUnfocus     string // content background when unfocused, default "\x1b[100;30m" (gray bg)
+	Render             func(w, h int) []string          // returns content lines
+	OnKey              func(key KeyEvent) PopupAction   // handles key events when focused
+	OnClose            func()                            // called after popup is removed
 }
 
 // ── popup stack ──────────────────────────────────────────────────
@@ -78,14 +80,26 @@ func (t *TUI) PushPopup(p Popup) {
 	if p.BgColor == "" {
 		p.BgColor = "\x1b[47;30m" // white bg, black fg
 	}
+	if p.BorderColorUnfocus == "" {
+		p.BorderColorUnfocus = "\x1b[2;36m" // dim cyan
+	}
+	if p.BgColorUnfocus == "" {
+		p.BgColorUnfocus = "\x1b[100;30m" // bright black (gray) bg
+	}
+
+	// New popup starts focused; unfocus any existing popups.
+	for i := range t.popups {
+		t.popups[i].focused = false
+	}
 
 	// Center popup in the output area.
 	x := (t.width - p.Width) / 2
 	y := (t.outputRows() - p.Height) / 2
 
 	pp := &popupState{
-		Popup: p,
-		x:     x, y: y,
+		Popup:   p,
+		x:       x, y: y,
+		focused: true,
 	}
 	t.popups = append(t.popups, pp)
 	t.renderPopup(pp)
@@ -112,14 +126,19 @@ func (t *TUI) SetGlobalKeyHandler(fn func(KeyEvent) bool) {
 
 type popupState struct {
 	Popup
-	x, y int
+	x, y    int
+	focused bool
 }
 
 // ── internal: popup rendering ────────────────────────────────────
 
 func (t *TUI) renderPopup(p *popupState) {
 	w, h := p.Width, p.Height
-	bc, bg, rst := p.BorderColor, p.BgColor, ansiReset
+	bc, bg := p.BorderColor, p.BgColor
+	if !p.focused {
+		bc, bg = p.BorderColorUnfocus, p.BgColorUnfocus
+	}
+	rst := ansiReset
 
 	// Top border with title.
 	title := p.Title
@@ -163,21 +182,39 @@ func (t *TUI) renderPopup(p *popupState) {
 
 // ── internal: popup key dispatch ─────────────────────────────────
 
-// handlePopupKey returns true if the key was consumed (not passed to normal input).
+// handlePopupKey returns true if the key was consumed.
 func (t *TUI) handlePopupKey(k keyEvent) bool {
-	// Esc always closes.
+	// Esc always closes the top popup.
 	if k.r == 27 {
 		t.popPopup()
 		t.renderAfterPopupClose()
 		return true
 	}
-	// Ctrl+C always works.
+	// Ctrl+C always passes through.
 	if k.ctrl && (k.r == 'c' || k.r == 'C') {
-		return false // let ReadLine handle Ctrl+C normally
+		return false
 	}
+
+	// Tab toggles focus between input and top popup.
+	if k.special == keyTab && !k.shift {
+		top := t.popups[len(t.popups)-1]
+		top.focused = !top.focused
+		t.renderPopup(top)
+		if top.focused {
+			t.showCursor()
+		}
+		return true
+	}
+
+	// If no popup has focus, all keys pass through to input.
 	top := t.popups[len(t.popups)-1]
+	if !top.focused {
+		return false
+	}
+
+	// Focused popup: route keys to OnKey.
 	if top.OnKey == nil {
-		return false // no handler — pass through to normal input
+		return false
 	}
 	switch top.OnKey(keyEventFromInternal(k)) {
 	case PopupClose:
@@ -189,7 +226,7 @@ func (t *TUI) handlePopupKey(k keyEvent) bool {
 		t.renderInputBox()
 		t.renderStatus()
 		return true
-	default: // PopupPassthrough
+	default:
 		return false
 	}
 }

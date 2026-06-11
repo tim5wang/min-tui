@@ -44,8 +44,8 @@ func main() {
 		if k.Ctrl && k.Rune == 'p' {
 			page := 0
 			pages := [][]string{
-				{"", "  Enter       Submit input", "  Shift+Enter Newline", "  Ctrl+J      Newline (fallback)", "  /           Slash commands", "  Ctrl+P      This popup", "  Ctrl+C      Quit", "  Ctrl+U/K/W  Edit shortcuts", "", "  ←→ page 1/2"},
-				{"", "  ↑↓          Navigate popups", "  Esc         Close popup", "  Popups are  non-modal", "  You can type while", "  a popup is open", "", "  Interactive popups", "  support OnKey", "", "  ←→ page 1/2"},
+				{"", "  Enter       Submit input", "  Shift+Enter Newline", "  Ctrl+J      Newline (fallback)", "  /           Slash commands", "  Ctrl+P      This popup", "  Ctrl+C      Quit", "  Tab         Switch focus", "", "  ←→ page 1/2"},
+				{"", "  ↑↓          Navigate popups", "  Esc         Close popup", "  Tab toggles input↔popup", "  Popup shows active", "  or dimmed border", "", "  ←→ page 1/2"},
 			}
 			tui.PushPopup(minitui.Popup{
 				Title:       "Key Bindings",
