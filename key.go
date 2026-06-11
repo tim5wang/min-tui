@@ -257,7 +257,7 @@ const (
 
 func (t *TUI) processKey(k keyEvent) {
 	// ── popup mode ─────────────────────────────────────────
-	if len(t.popups) > 0 {
+	if len(t.popups) > 0 && t.popups[len(t.popups)-1].focused {
 		t.processPopupKey(k)
 		return
 	}
