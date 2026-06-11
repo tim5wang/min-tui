@@ -103,11 +103,21 @@ type Event struct {
 	Height int
 }
 
-// Config holds optional settings.
+// Config holds optional settings for NewWithConfig.
 type Config struct {
-	EventCh      chan<- Event
-	RenderLine   func(string) string
-	BorderColor  string
+	// EventCh: if non-nil, EventSubmit/EventResize/EventInterrupt are sent here.
+	EventCh chan<- Event
+
+	// RenderLine: custom markdown-to-ANSI renderer. Receives one raw line,
+	// returns the ANSI-styled version. When nil, the built-in renderer
+	// handles headings, **bold**, *italic*, `code`, and tables.
+	RenderLine func(string) string
+
+	// BorderColor: ANSI escape for input-box border lines, e.g. "\x1b[34m".
+	// Default: dim (\x1b[2m).
+	BorderColor string
+
+	// MaxInputRows: maximum visible rows in the input box. Default: 8.
 	MaxInputRows int
 }
 
@@ -300,6 +310,7 @@ func (t *TUI) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
+// WriteString is a convenience wrapper around Write.
 func (t *TUI) WriteString(s string) (int, error) { return t.Write([]byte(s)) }
 
 func (t *TUI) appendOutput(data []byte) {
@@ -433,6 +444,11 @@ func (t *TUI) ReadSelect(options []SelectOption) int {
 
 // ── ReadLine ─────────────────────────────────────────────────────
 
+// ReadLine blocks until the user presses Enter (without Shift).
+// It returns the submitted text, or an error if Ctrl+C is pressed.
+//
+// While ReadLine is blocking, other goroutines may call Write or SetStatus
+// to update the output area and status bar concurrently.
 func (t *TUI) ReadLine() (string, error) {
 	t.showCursor()
 	for {

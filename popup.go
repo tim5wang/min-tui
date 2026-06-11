@@ -36,18 +36,37 @@ const (
 	PopupClose                             // close popup
 )
 
-// Popup configures an overlay window.
+// Popup configures an overlay window.  Popups are rendered on top of the
+// output area and do not affect the underlying history buffer.
 type Popup struct {
-	Title              string
-	Width              int  // 0 = 80% of terminal width
-	Height             int  // 0 = auto-fit content
-	BorderColor        string // border/title color when focused, default "\x1b[36m" (cyan)
-	BgColor            string // content background when focused, default "\x1b[47;30m" (white bg)
-	BorderColorUnfocus string // border/title color when unfocused, default dim cyan
-	BgColorUnfocus     string // content background when unfocused, default "\x1b[100;30m" (gray bg)
-	Render             func(w, h int) []string          // returns content lines
-	OnKey              func(key KeyEvent) PopupAction   // handles key events when focused
-	OnClose            func()                            // called after popup is removed
+	Title string
+
+	// Width and Height specify the popup size in cells.
+	// 0 means auto: 80% of terminal width, 60% of output-area height.
+	Width  int
+	Height int
+
+	// BorderColor and BgColor are the ANSI escapes used when the popup is focused.
+	// Defaults: cyan border (\x1b[36m), white background (\x1b[47;30m).
+	BorderColor string
+	BgColor     string
+
+	// BorderColorUnfocus and BgColorUnfocus are used when the popup is not
+	// focused (Tab toggles focus). Defaults: dim cyan, gray background.
+	BorderColorUnfocus string
+	BgColorUnfocus     string
+
+	// Render returns the lines to display inside the popup (excluding borders).
+	// w and h are the available content width and height.
+	Render func(w, h int) []string
+
+	// OnKey is called when the popup is focused and a key is pressed.
+	// Return PopupUpdate to re-render, PopupClose to dismiss, PopupPassthrough
+	// to let the key fall through to the input editor.
+	OnKey func(key KeyEvent) PopupAction
+
+	// OnClose is called after the popup is removed from the stack.
+	OnClose func()
 }
 
 // ── popup stack ──────────────────────────────────────────────────
