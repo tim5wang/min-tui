@@ -507,6 +507,19 @@ func (t *TUI) clearSlashInput() {
 	t.updateSlashMatches()
 }
 
+// slashScrollToSelected adjusts scroll offset so the selected item is visible.
+func (t *TUI) slashScrollToSelected() {
+	if t.slashSelected < t.slashScrollOff {
+		t.slashScrollOff = t.slashSelected
+	}
+	if t.slashSelected >= t.slashScrollOff+t.slashDropdownH {
+		t.slashScrollOff = t.slashSelected - t.slashDropdownH + 1
+	}
+	if t.slashScrollOff < 0 {
+		t.slashScrollOff = 0
+	}
+}
+
 func (t *TUI) processSlashKey(k keyEvent) {
 	switch {
 	case k.r == 27: // Escape
@@ -526,10 +539,12 @@ func (t *TUI) processSlashKey(k keyEvent) {
 	case k.special == keyUp:
 		if t.slashSelected > 0 {
 			t.slashSelected--
+			t.slashScrollToSelected()
 		}
 	case k.special == keyDown:
 		if t.slashSelected < len(t.slashMatches)-1 {
 			t.slashSelected++
+			t.slashScrollToSelected()
 		}
 	case k.special == keyBackspace:
 		t.backspace()
@@ -605,16 +620,7 @@ func (t *TUI) updateSlashMatches() {
 	if t.slashSelected < 0 {
 		t.slashSelected = 0
 	}
-	// Keep selection visible within the dropdown window.
-	if t.slashSelected < t.slashScrollOff {
-		t.slashScrollOff = t.slashSelected
-	}
-	if t.slashSelected >= t.slashScrollOff+t.slashDropdownH {
-		t.slashScrollOff = t.slashSelected - t.slashDropdownH + 1
-	}
-	if t.slashScrollOff < 0 {
-		t.slashScrollOff = 0
-	}
+	t.slashScrollToSelected()
 }
 
 // renderSlashDropdown draws the command suggestion list above the input box.
