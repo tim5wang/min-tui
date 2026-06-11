@@ -255,7 +255,7 @@ func (t *TUI) outputRows() int { return t.outputRowsForSlash() }
 // outputRowsForSlash returns visible output rows accounting for dropdown.
 func (t *TUI) outputRowsForSlash() int {
 	dh := 0
-	if t.slashMode {
+	if t.slashMode || t.selectMode {
 		dh = t.slashDropdownH
 	}
 	return t.height - t.inHeight - dh - 3
