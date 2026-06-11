@@ -27,6 +27,15 @@ func keyEventFromInternal(k keyEvent) KeyEvent {
 	}
 }
 
+// PopupAction controls what happens after OnKey processes a key.
+type PopupAction int
+
+const (
+	PopupPassthrough PopupAction = iota // key not handled — normal input
+	PopupUpdate                            // key handled — re-render popup
+	PopupClose                             // close popup
+)
+
 // Popup configures an overlay window.
 type Popup struct {
 	Title       string
@@ -35,7 +44,7 @@ type Popup struct {
 	BorderColor string // ANSI escape for border/title, default "\x1b[36m" (cyan)
 	BgColor     string // ANSI escape for content background, default "\x1b[47;30m" (white bg)
 	Render      func(w, h int) []string          // returns content lines
-	OnKey       func(key KeyEvent) (close bool)  // true closes the popup
+	OnKey       func(key KeyEvent) PopupAction   // handles key events
 	OnClose     func()                            // called after popup is removed
 }
 
@@ -154,35 +163,53 @@ func (t *TUI) renderPopup(p *popupState) {
 
 // ── internal: popup key dispatch ─────────────────────────────────
 
-// handlePopupKey returns true if the key was consumed (Esc or OnKey).
+// handlePopupKey returns true if the key was consumed (not passed to normal input).
 func (t *TUI) handlePopupKey(k keyEvent) bool {
-	if k.r == 27 { // Escape
+	// Esc always closes.
+	if k.r == 27 {
 		t.popPopup()
 		t.renderAfterPopupClose()
 		return true
+	}
+	// Ctrl+C always works.
+	if k.ctrl && (k.r == 'c' || k.r == 'C') {
+		return false // let ReadLine handle Ctrl+C normally
 	}
 	top := t.popups[len(t.popups)-1]
-	if top.OnKey != nil && top.OnKey(keyEventFromInternal(k)) {
+	if top.OnKey == nil {
+		return false // no handler — pass through to normal input
+	}
+	switch top.OnKey(keyEventFromInternal(k)) {
+	case PopupClose:
 		t.popPopup()
 		t.renderAfterPopupClose()
 		return true
+	case PopupUpdate:
+		t.renderPopup(top)
+		t.renderInputBox()
+		t.renderStatus()
+		return true
+	default: // PopupPassthrough
+		return false
 	}
-	return false
 }
 
 // processPopupKey is called from processKey when a popup is active
 // and the key wasn't consumed by the ReadLine dispatch.
 func (t *TUI) processPopupKey(k keyEvent) {
-	if k.r == 27 {
-		t.popPopup()
-		t.renderAfterPopupClose()
-		return
+	if k.r == 27 || (k.ctrl && (k.r == 'c' || k.r == 'C')) {
+		return // Esc/Ctrl+C handled elsewhere
 	}
 	top := t.popups[len(t.popups)-1]
-	if top.OnKey != nil && top.OnKey(keyEventFromInternal(k)) {
+	if top.OnKey == nil {
+		return
+	}
+	switch top.OnKey(keyEventFromInternal(k)) {
+	case PopupClose:
 		t.popPopup()
 		t.renderAfterPopupClose()
-		return
+	case PopupUpdate:
+		t.renderPopup(top)
 	}
 }
 

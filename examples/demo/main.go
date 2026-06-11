@@ -39,27 +39,28 @@ func main() {
 	}
 	defer func() { close(eventCh); tui.Close() }()
 
-	// Global key handler: Ctrl+P opens a popup.
+	// Global key handler: Ctrl+P opens an interactive popup.
 	tui.SetGlobalKeyHandler(func(k minitui.KeyEvent) bool {
 		if k.Ctrl && k.Rune == 'p' {
+			page := 0
+			pages := [][]string{
+				{"", "  Enter       Submit input", "  Shift+Enter Newline", "  Ctrl+J      Newline (fallback)", "  /           Slash commands", "  Ctrl+P      This popup", "  Ctrl+C      Quit", "  Ctrl+U/K/W  Edit shortcuts", "", "  ←→ page 1/2"},
+				{"", "  ↑↓          Navigate popups", "  Esc         Close popup", "  Popups are  non-modal", "  You can type while", "  a popup is open", "", "  Interactive popups", "  support OnKey", "", "  ←→ page 1/2"},
+			}
 			tui.PushPopup(minitui.Popup{
-				Title:  "Key Bindings",
-				Width:  42, Height: 13,
-				BorderColor: "\x1b[35m", // magenta border
-				BgColor:     "\x1b[47;30m", // white bg
+				Title:       "Key Bindings",
+				Width:       42, Height: 13,
+				BorderColor: "\x1b[35m",
+				BgColor:     "\x1b[47;30m",
 				Render: func(w, h int) []string {
-					return []string{
-						"",
-						"  Enter       Submit input",
-						"  Shift+Enter Newline",
-						"  Ctrl+J      Newline (fallback)",
-						"  /           Slash commands",
-						"  Ctrl+P      This popup",
-						"  Ctrl+C      Quit",
-						"  Ctrl+U/K/W  Edit shortcuts",
-						"",
-						"  Press Esc to close",
+					return pages[page]
+				},
+				OnKey: func(k minitui.KeyEvent) minitui.PopupAction {
+					if k.Special == minitui.KeyLeft || k.Special == minitui.KeyRight {
+						page = (page + 1) % len(pages)
+						return minitui.PopupUpdate
 					}
+					return minitui.PopupPassthrough
 				},
 			})
 			return true
