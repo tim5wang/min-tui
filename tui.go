@@ -51,6 +51,50 @@ const (
 	EventInterrupt                  // user pressed Ctrl+C
 )
 
+// SelectOption is a single item in a secondary selection menu.
+type SelectOption struct {
+	Label       string
+	Description string
+}
+
+// CommandContext provides multi-turn interaction for slash commands.
+type CommandContext struct {
+	Args string
+	tui  *TUI
+}
+
+// Prompt displays a prompt in the status bar and waits for user input.
+func (ctx *CommandContext) Prompt(prompt string) string {
+	if prompt != "" {
+		ctx.tui.SetStatus(prompt, StatusInfo)
+	}
+	return ctx.tui.ReadModalInput()
+}
+
+// Select shows a dropdown menu. Returns the index of the chosen item,
+// or -1 if the user pressed Escape to cancel.
+func (ctx *CommandContext) Select(prompt string, options []SelectOption) int {
+	if prompt != "" {
+		ctx.tui.SetStatus(prompt, StatusInfo)
+	}
+	return ctx.tui.ReadSelect(options)
+}
+
+// Write outputs text to the output area.
+func (ctx *CommandContext) Write(s string) { ctx.tui.WriteString(s) }
+
+// SetStatus updates the status bar.
+func (ctx *CommandContext) SetStatus(text string, style StatusStyle) {
+	ctx.tui.SetStatus(text, style)
+}
+
+// SlashCommand is a slash-command registered by the application.
+type SlashCommand struct {
+	Name        string                      // e.g. "help", "search"
+	Description string                      // shown in the dropdown
+	Handler     func(ctx *CommandContext)   // called with interaction context
+}
+
 // Event is sent on the event channel when subscribed.
 type Event struct {
 	Type   EventType
@@ -102,6 +146,23 @@ type TUI struct {
 	customRender func(string) string
 	borderColor  string
 	maxInputRows int
+
+	// Slash commands.
+	slashCmds      []SlashCommand
+	slashMode      bool
+	slashQuery     string
+	slashMatches   []int
+	slashSelected  int
+	slashDropdownH int
+
+	// Modal input (multi-turn slash commands).
+	modal chan string
+
+	// Select mode (secondary dropdown menu from CommandContext.Select).
+	selectMode  bool
+	selectItems []SelectOption
+	selectIdx   int
+	selectCh    chan int
 
 	// Keyboard.
 	keyBuf []byte
@@ -173,11 +234,28 @@ func (t *TUI) Close() {
 
 // ── layout ───────────────────────────────────────────────────────
 
-func (t *TUI) outputRows() int { return t.height - t.inHeight - 3 }
-func (t *TUI) inTopBorder() int  { return t.outputRows() + 1 }
+func (t *TUI) outputRows() int { return t.outputRowsForSlash() }
+
+// outputRowsForSlash returns visible output rows accounting for dropdown.
+func (t *TUI) outputRowsForSlash() int {
+	dh := 0
+	if t.slashMode {
+		dh = t.slashDropdownH
+	}
+	return t.height - t.inHeight - dh - 3
+}
+
+// Layout (0-based):
+//   [0 … outputRows-1]              output area
+//   [outputRows … outputRows+dh-1]   slash dropdown (if active)
+//   [outputRows+dh]                  input top border
+//   [outputRows+dh+1 … +dh+inH]      input content
+//   [outputRows+dh+inH+1]            input bottom border
+//   [height-1]                        status bar
+func (t *TUI) inTopBorder() int    { return t.outputRows() + t.slashDropdownH }
 func (t *TUI) inContentStart() int { return t.inTopBorder() + 1 }
-func (t *TUI) inBotBorder() int { return t.inContentStart() + t.inHeight }
-func (t *TUI) statusRow() int  { return t.height - 1 }
+func (t *TUI) inBotBorder() int    { return t.inContentStart() + t.inHeight }
+func (t *TUI) statusRow() int      { return t.height - 1 }
 
 // ── full draw ────────────────────────────────────────────────────
 
@@ -291,12 +369,57 @@ func (t *TUI) renderAfterWrite() {
 		}
 		// Restore full screen — no persistent scroll region.
 		fmt.Fprint(os.Stdout, "\x1b[r")
+		os.Stdout.Sync()
 
 		t.pushed = len(t.outAnsi) - vis
 	}
 
 	// 2. Render visible output rows.
 	t.renderOutputScreen()
+}
+
+// ── modal input (multi-turn slash commands) ─────────────────────
+
+// ReadModalInput blocks until the user submits input. It is called from
+// slash command handlers (which run in a goroutine) to implement multi-step
+// interactions like /login → username → password.
+func (t *TUI) ReadModalInput() string {
+	t.mu.Lock()
+	ch := make(chan string, 1)
+	t.modal = ch
+	t.mu.Unlock()
+	return <-ch
+}
+
+// ReadSelect shows a dropdown menu with the given options and returns the
+// selected index. Returns -1 if cancelled with Escape.
+func (t *TUI) ReadSelect(options []SelectOption) int {
+	t.mu.Lock()
+	t.selectMode = true
+	t.selectItems = options
+	t.selectIdx = 0
+	dh := len(options)
+	if dh > slashDropdownMax {
+		dh = slashDropdownMax
+	}
+	t.slashDropdownH = dh // reuse slash dropdown height field for layout
+	t.selectCh = make(chan int, 1)
+
+	t.renderOutputScreen()
+	t.renderSelectDropdown()
+	t.renderInputBox()
+	t.renderStatus()
+	t.mu.Unlock()
+
+	result := <-t.selectCh
+
+	t.mu.Lock()
+	t.selectMode = false
+	t.slashDropdownH = 0
+	t.selectItems = nil
+	t.renderOutputScreen()
+	t.mu.Unlock()
+	return result
 }
 
 // ── ReadLine ─────────────────────────────────────────────────────
@@ -325,6 +448,38 @@ func (t *TUI) ReadLine() (string, error) {
 			return "", fmt.Errorf("minitui: interrupted")
 		}
 		if key.enter && !key.shift {
+			// Select mode: send selected index.
+			if t.selectMode && t.selectCh != nil {
+				ch := t.selectCh
+				t.selectCh = nil
+				t.mu.Unlock()
+				ch <- t.selectIdx
+				continue
+			}
+			// Slash mode: execute selected command instead of submitting.
+			if t.slashMode {
+				t.executeSelectedCommand()
+				t.clearInput()
+				t.exitSlashMode()
+				t.renderInputBox()
+				t.renderStatus()
+				t.showCursor()
+				t.mu.Unlock()
+				continue
+			}
+			// Modal input: route to waiting handler.
+			if t.modal != nil {
+				result := t.inputText()
+				t.clearInput()
+				t.renderInputBox()
+				t.renderStatus()
+				t.showCursor()
+				ch := t.modal
+				t.modal = nil
+				t.mu.Unlock()
+				ch <- result
+				continue
+			}
 			result := t.inputText()
 			t.clearInput()
 			t.renderInputBox()
@@ -369,7 +524,6 @@ func (t *TUI) clearInput() {
 	t.inCursorCol = 0
 	t.inScrollRow = 0
 	t.inHeight = 1
-	// Re-render output area since it now has more visible rows.
 	t.renderOutputScreen()
 }
 
@@ -400,13 +554,27 @@ func (t *TUI) recalcInputHeight() {
 }
 
 func (t *TUI) scrollOutputUp(rows int) {
-	vis := t.outputRows()
-	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", vis)
-	fmt.Fprintf(os.Stdout, "\x1b[%d;1H", vis)
-	for i := 0; i < rows; i++ {
-		fmt.Fprint(os.Stdout, "\r\n")
+	oldVis := t.outputRows() // output rows before height change
+
+	// Temporarily set scroll region to old output area.
+	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", oldVis)
+	fmt.Fprintf(os.Stdout, "\x1b[%d;1H", oldVis)
+
+	// Push the last `rows` lines of the current visible output into scrollback.
+	start := len(t.outAnsi) - oldVis
+	if start < 0 {
+		start = 0
 	}
-	fmt.Fprint(os.Stdout, "\x1b[r")
+	for i := 0; i < rows; i++ {
+		line := ""
+		if start+i < len(t.outAnsi) {
+			line = t.outAnsi[start+i]
+		}
+		fmt.Fprintf(os.Stdout, "%s\r\n", line)
+	}
+
+	fmt.Fprint(os.Stdout, "\x1b[r") // restore full-screen
+	t.pushed += rows
 }
 
 func (t *TUI) handleResize() {
@@ -430,3 +598,26 @@ func (t *TUI) showCursor() {
 		fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[?25h", cr+1, cc)
 	}
 }
+
+// ── slash commands ──────────────────────────────────────────────
+
+// RegisterCommand adds a slash command. When the user types /name in the
+// input box, a dropdown appears. Selecting and pressing Enter calls Handler.
+func (t *TUI) RegisterCommand(cmd SlashCommand) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.slashCmds = append(t.slashCmds, cmd)
+}
+
+// UnregisterCommand removes a slash command by name.
+func (t *TUI) UnregisterCommand(name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i, c := range t.slashCmds {
+		if c.Name == name {
+			t.slashCmds = append(t.slashCmds[:i], t.slashCmds[i+1:]...)
+			return
+		}
+	}
+}
+

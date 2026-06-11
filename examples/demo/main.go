@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/tim5wang/min-tui"
@@ -38,7 +39,60 @@ func main() {
 	}
 	defer func() { close(eventCh); tui.Close() }()
 
-	tui.SetStatus("Enter 提交 | Shift+Enter/Ctrl+J 换行 | Ctrl+C 退出", minitui.StatusInfo)
+	// Register slash commands — type / in the input box to see the dropdown.
+	tui.RegisterCommand(minitui.SlashCommand{
+		Name: "help", Description: "显示帮助信息",
+		Handler: func(ctx *minitui.CommandContext) {
+			ctx.Write("\n**帮助**\n")
+			ctx.Write("- Enter 提交 | Shift+Enter/Ctrl+J 换行\n")
+			ctx.Write("- /help /echo /login 等命令\n")
+			ctx.Write("- Ctrl+C 退出\n\n")
+		},
+	})
+	tui.RegisterCommand(minitui.SlashCommand{
+		Name: "echo", Description: "回显输入的参数",
+		Handler: func(ctx *minitui.CommandContext) {
+			ctx.Write("\n**Echo:** " + ctx.Args + "\n\n")
+		},
+	})
+	tui.RegisterCommand(minitui.SlashCommand{
+		Name: "login", Description: "多轮交互示例 — 二级菜单选择",
+		Handler: func(ctx *minitui.CommandContext) {
+			// 二级菜单：选择登录方式
+			method := ctx.Select("选择登录方式", []minitui.SelectOption{
+				{Label: "password", Description: "用户名 + 密码登录"},
+				{Label: "token", Description: "Token 认证登录"},
+				{Label: "guest", Description: "访客模式"},
+			})
+			if method < 0 {
+				ctx.Write("\n已取消\n\n")
+				return
+			}
+
+			switch method {
+			case 0: // password
+				ctx.SetStatus("请输入用户名", minitui.StatusWarning)
+				username := ctx.Prompt("")
+				if username == "" {
+					ctx.Write("\n已取消\n\n")
+					return
+				}
+				ctx.SetStatus("请输入密码", minitui.StatusWarning)
+				password := ctx.Prompt("")
+				ctx.Write("\n**密码登录成功**\n用户: " + username + "\n\n")
+				_ = password
+			case 1: // token
+				ctx.SetStatus("请输入 Token", minitui.StatusWarning)
+				token := ctx.Prompt("")
+				ctx.Write("\n**Token 认证成功**\nToken: " + strings.Repeat("*", len(token)) + "\n\n")
+			case 2: // guest
+				ctx.Write("\n**访客模式** — 仅浏览权限\n\n")
+			}
+			ctx.SetStatus("就绪 | / 唤起命令", minitui.StatusSuccess)
+		},
+	})
+
+	tui.SetStatus("输入 / 唤起命令 | Enter 提交 | Shift+Enter/Ctrl+J 换行", minitui.StatusInfo)
 
 	for {
 		input, err := tui.ReadLine()

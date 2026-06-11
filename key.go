@@ -1,7 +1,9 @@
 package minitui
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -242,6 +244,17 @@ func parseNums(b []byte) []int {
 // ── input editor ─────────────────────────────────────────────────
 
 func (t *TUI) processKey(k keyEvent) {
+	// ── select mode ─────────────────────────────────────────
+	if t.selectMode {
+		t.processSelectKey(k)
+		return
+	}
+	// ── slash mode ───────────────────────────────────────────
+	if t.slashMode {
+		t.processSlashKey(k)
+		return
+	}
+	// ── normal mode ─────────────────────────────────────────
 	switch {
 	case k.pasted != "":
 		t.paste(k.pasted)
@@ -274,6 +287,7 @@ func (t *TUI) processKey(k keyEvent) {
 		for i := 0; i < 4; i++ { t.insertRune(' ') }
 	case k.r > 0:
 		t.insertRune(k.r)
+		t.checkSlashTrigger()
 	}
 	t.recalcInputHeight()
 }
@@ -421,4 +435,207 @@ func indexBytes(haystack, needle []byte) int {
 		if string(haystack[i:i+len(needle)]) == string(needle) { return i }
 	}
 	return -1
+}
+
+// ── slash commands ───────────────────────────────────────────────
+
+const slashDropdownMax = 8
+
+// checkSlashTrigger detects whether the input line starts with /.
+func (t *TUI) checkSlashTrigger() {
+	if t.slashMode || len(t.slashCmds) == 0 {
+		return
+	}
+	line := t.inLines[t.inCursorRow]
+	// Slash must be the first non-space character.
+	for i, r := range line {
+		if r == ' ' {
+			continue
+		}
+		if r == '/' && i == t.inCursorCol-1 {
+			t.enterSlashMode()
+		}
+		return
+	}
+}
+
+func (t *TUI) enterSlashMode() {
+	t.slashMode = true
+	t.slashQuery = ""
+	t.slashMatches = nil
+	t.slashSelected = 0
+	t.updateSlashMatches()
+}
+
+func (t *TUI) exitSlashMode() {
+	t.slashMode = false
+	t.slashDropdownH = 0
+	t.slashMatches = nil
+	t.renderOutputScreen()
+	t.renderInputBox()
+}
+
+func (t *TUI) processSlashKey(k keyEvent) {
+	switch {
+	case k.r == 27: // Escape
+		t.exitSlashMode()
+		return
+	case k.special == keyUp:
+		if t.slashSelected > 0 {
+			t.slashSelected--
+		}
+	case k.special == keyDown:
+		if t.slashSelected < len(t.slashMatches)-1 {
+			t.slashSelected++
+		}
+	case k.special == keyBackspace:
+		t.backspace()
+		if t.inCursorCol == 0 {
+			// Backspaced past the / — exit slash mode.
+			t.exitSlashMode()
+			return
+		}
+		t.updateSlashQueryFromInput()
+		t.updateSlashMatches()
+	case k.r > 0:
+		t.insertRune(k.r)
+		t.updateSlashQueryFromInput()
+		t.updateSlashMatches()
+	}
+	t.renderSlashDropdown()
+	t.renderInputBox()
+	t.renderStatus()
+}
+
+// updateSlashQueryFromInput extracts the query text after / from the input.
+func (t *TUI) updateSlashQueryFromInput() {
+	line := string(t.inLines[t.inCursorRow])
+	if len(line) > 0 && line[0] == '/' {
+		t.slashQuery = line[1:]
+	} else {
+		t.slashQuery = ""
+	}
+}
+
+// updateSlashMatches filters slash commands by the current query.
+func (t *TUI) updateSlashMatches() {
+	t.slashMatches = t.slashMatches[:0]
+	q := strings.ToLower(t.slashQuery)
+	for i, c := range t.slashCmds {
+		if strings.Contains(strings.ToLower(c.Name), q) {
+			t.slashMatches = append(t.slashMatches, i)
+		}
+	}
+	if len(t.slashMatches) == 0 {
+		t.slashDropdownH = 0
+		return
+	}
+	t.slashDropdownH = len(t.slashMatches)
+	if t.slashDropdownH > slashDropdownMax {
+		t.slashDropdownH = slashDropdownMax
+	}
+	if t.slashSelected >= len(t.slashMatches) {
+		t.slashSelected = len(t.slashMatches) - 1
+	}
+	if t.slashSelected < 0 {
+		t.slashSelected = 0
+	}
+}
+
+// renderSlashDropdown draws the command suggestion list above the input box.
+func (t *TUI) renderSlashDropdown() {
+	if !t.slashMode || t.slashDropdownH == 0 {
+		return
+	}
+	// Dropdown sits between output area and input box.
+	// output area was already rendered by processSlashKey caller.
+	startRow := t.outputRows() // first row of dropdown
+
+	for i := 0; i < t.slashDropdownH; i++ {
+		matchIdx := t.slashMatches[i]
+		cmd := t.slashCmds[matchIdx]
+		prefix := "  "
+		if i == t.slashSelected {
+			prefix = "\x1b[7m> " // inverted highlight
+		} else {
+			prefix = "  "
+		}
+		line := fmt.Sprintf("%s/%-20s %s", prefix, cmd.Name, cmd.Description)
+		if i == t.slashSelected {
+			line += "\x1b[0m"
+		}
+		t.writeRow(startRow+i, line)
+	}
+	// Clear any remaining dropdown rows from previous render.
+	prevH := startRow + t.slashDropdownH
+	maxPrev := t.inTopBorder() - 1
+	for i := prevH; i <= maxPrev; i++ {
+		t.writeRow(i, "")
+	}
+}
+
+func (t *TUI) executeSelectedCommand() {
+	if t.slashSelected < 0 || t.slashSelected >= len(t.slashMatches) {
+		return
+	}
+	cmdIdx := t.slashMatches[t.slashSelected]
+	cmd := t.slashCmds[cmdIdx]
+	args := ""
+	if len(t.slashQuery) > len(cmd.Name) {
+		args = strings.TrimSpace(t.slashQuery[len(cmd.Name):])
+	}
+	ctx := &CommandContext{Args: args, tui: t}
+	go cmd.Handler(ctx)
+}
+
+// ── select mode (secondary dropdown) ────────────────────────────
+
+func (t *TUI) processSelectKey(k keyEvent) {
+	switch {
+	case k.r == 27: // Escape
+		t.cancelSelect()
+	case k.special == keyUp:
+		if t.selectIdx > 0 {
+			t.selectIdx--
+		}
+	case k.special == keyDown:
+		if t.selectIdx < len(t.selectItems)-1 {
+			t.selectIdx++
+		}
+	}
+	t.renderSelectDropdown()
+	t.renderInputBox()
+	t.renderStatus()
+}
+
+func (t *TUI) cancelSelect() {
+	ch := t.selectCh
+	t.selectCh = nil
+	t.mu.Unlock()
+	ch <- -1
+	t.mu.Lock()
+}
+
+func (t *TUI) renderSelectDropdown() {
+	if !t.selectMode || len(t.selectItems) == 0 {
+		return
+	}
+	startRow := t.outputRows()
+	visible := t.slashDropdownH
+
+	for i := 0; i < visible; i++ {
+		if i >= len(t.selectItems) {
+			t.writeRow(startRow+i, "")
+			continue
+		}
+		item := t.selectItems[i]
+		prefix := "  "
+		suffix := ""
+		if i == t.selectIdx {
+			prefix = "\x1b[7m> "
+			suffix = "\x1b[0m"
+		}
+		line := fmt.Sprintf("%s%-30s %s%s", prefix, item.Label, item.Description, suffix)
+		t.writeRow(startRow+i, line)
+	}
 }
