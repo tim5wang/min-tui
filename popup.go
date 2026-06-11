@@ -29,12 +29,14 @@ func keyEventFromInternal(k keyEvent) KeyEvent {
 
 // Popup configures an overlay window.
 type Popup struct {
-	Title   string
-	Width   int  // 0 = 80% of terminal width
-	Height  int  // 0 = auto-fit content
-	Render  func(w, h int) []string          // returns content lines
-	OnKey   func(key KeyEvent) (close bool)  // true closes the popup
-	OnClose func()                            // called after popup is removed
+	Title       string
+	Width       int  // 0 = 80% of terminal width
+	Height      int  // 0 = auto-fit content
+	BorderColor string // ANSI escape for border/title, default "\x1b[36m" (cyan)
+	BgColor     string // ANSI escape for content background, default "\x1b[47;30m" (white bg)
+	Render      func(w, h int) []string          // returns content lines
+	OnKey       func(key KeyEvent) (close bool)  // true closes the popup
+	OnClose     func()                            // called after popup is removed
 }
 
 // ── popup stack ──────────────────────────────────────────────────
@@ -60,6 +62,12 @@ func (t *TUI) PushPopup(p Popup) {
 	}
 	if p.Height > t.outputRows()-1 {
 		p.Height = t.outputRows() - 1
+	}
+	if p.BorderColor == "" {
+		p.BorderColor = "\x1b[36m" // cyan
+	}
+	if p.BgColor == "" {
+		p.BgColor = "\x1b[47;30m" // white bg, black fg
 	}
 
 	// Center popup in the output area.
@@ -102,34 +110,46 @@ type popupState struct {
 
 func (t *TUI) renderPopup(p *popupState) {
 	w, h := p.Width, p.Height
+	bc, bg, rst := p.BorderColor, p.BgColor, ansiReset
 
 	// Top border with title.
 	title := p.Title
-	if len(title) > w-4 {
-		title = title[:w-4]
+	tw := displayWidth(title)
+	if tw > w-5 {
+		// Truncate title to fit.
+		var b strings.Builder
+		cur := 0
+		for _, r := range title {
+			rw := runeWidth(r)
+			if cur+rw > w-5 { break }
+			b.WriteRune(r); cur += rw
+		}
+		title = b.String()
+		tw = cur
 	}
-	topBar := "┌─ " + title + " "
-	for runeDisplayWidth(topBar) < w {
-		topBar += "─"
+	padW := w - tw - 5 // dashes between title and right border
+	if padW < 0 {
+		padW = 0
 	}
-	topBar += "┐"
+
+	topBar := bc + "┌─ " + rst + title + bc + " " + strings.Repeat("─", padW) + "┐" + rst
 	t.writeRow(p.y, topBar)
 
-	// Content area (scrollable if needed).
+	// Content area.
 	content := p.Render(w-2, h-2)
 	for i := 0; i < h-2; i++ {
-		line := "│ "
+		var line string
 		if i < len(content) {
-			line += padTo(content[i], w-2)
+			line = bc + "│" + rst + bg + padTo(content[i], w-2) + rst + bc + "│" + rst
 		} else {
-			line += strings.Repeat(" ", w-2)
+			line = bc + "│" + rst + bg + strings.Repeat(" ", w-2) + rst + bc + "│" + rst
 		}
-		line += "│"
 		t.writeRow(p.y+1+i, line)
 	}
 
 	// Bottom border.
-	t.writeRow(p.y+h-1, "└"+strings.Repeat("─", w)+"┘")
+	botBar := bc + "└" + strings.Repeat("─", w) + "┘" + rst
+	t.writeRow(p.y+h-1, botBar)
 }
 
 // ── internal: popup key dispatch ─────────────────────────────────

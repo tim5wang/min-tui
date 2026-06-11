@@ -44,7 +44,9 @@ func main() {
 		if k.Ctrl && k.Rune == 'p' {
 			tui.PushPopup(minitui.Popup{
 				Title:  "Key Bindings",
-				Width:  40, Height: 12,
+				Width:  42, Height: 13,
+				BorderColor: "\x1b[35m", // magenta border
+				BgColor:     "\x1b[47;30m", // white bg
 				Render: func(w, h int) []string {
 					return []string{
 						"",
