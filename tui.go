@@ -170,10 +170,11 @@ type TUI struct {
 	modal chan string
 
 	// Select mode (secondary dropdown menu from CommandContext.Select).
-	selectMode  bool
-	selectItems []SelectOption
-	selectIdx   int
-	selectCh    chan int
+	selectMode     bool
+	selectItems    []SelectOption
+	selectIdx      int
+	selectScrollOff int
+	selectCh       chan int
 
 	// Popup windows.
 	popups      []*popupState
@@ -419,6 +420,7 @@ func (t *TUI) ReadSelect(options []SelectOption) int {
 	t.selectMode = true
 	t.selectItems = options
 	t.selectIdx = 0
+	t.selectScrollOff = 0
 	dh := len(options)
 	if dh > slashDropdownMax {
 		dh = slashDropdownMax

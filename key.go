@@ -675,15 +675,30 @@ func (t *TUI) processSelectKey(k keyEvent) {
 	case k.special == keyUp:
 		if t.selectIdx > 0 {
 			t.selectIdx--
+			t.selectScrollToVisible()
 		}
 	case k.special == keyDown:
 		if t.selectIdx < len(t.selectItems)-1 {
 			t.selectIdx++
+			t.selectScrollToVisible()
 		}
 	}
 	t.renderSelectDropdown()
 	t.renderInputBox()
 	t.renderStatus()
+}
+
+func (t *TUI) selectScrollToVisible() {
+	dh := t.slashDropdownH
+	if t.selectIdx < t.selectScrollOff {
+		t.selectScrollOff = t.selectIdx
+	}
+	if t.selectIdx >= t.selectScrollOff+dh {
+		t.selectScrollOff = t.selectIdx - dh + 1
+	}
+	if t.selectScrollOff < 0 {
+		t.selectScrollOff = 0
+	}
 }
 
 func (t *TUI) cancelSelect() {
@@ -702,14 +717,15 @@ func (t *TUI) renderSelectDropdown() {
 	visible := t.slashDropdownH
 
 	for i := 0; i < visible; i++ {
-		if i >= len(t.selectItems) {
+		itemIdx := i + t.selectScrollOff
+		if itemIdx >= len(t.selectItems) {
 			t.writeRow(startRow+i, "")
 			continue
 		}
-		item := t.selectItems[i]
+		item := t.selectItems[itemIdx]
 		prefix := "  "
 		suffix := ""
-		if i == t.selectIdx {
+		if itemIdx == t.selectIdx {
 			prefix = "\x1b[7m> "
 			suffix = "\x1b[0m"
 		}

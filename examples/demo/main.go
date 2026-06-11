@@ -92,6 +92,12 @@ func main() {
 				{Label: "password", Description: "用户名 + 密码登录"},
 				{Label: "token", Description: "Token 认证登录"},
 				{Label: "guest", Description: "访客模式"},
+				{Label: "oauth", Description: "OAuth 2.0 授权"},
+				{Label: "sso", Description: "单点登录 SSO"},
+				{Label: "ldap", Description: "LDAP 目录认证"},
+				{Label: "api_key", Description: "API Key 认证"},
+				{Label: "mfa", Description: "多因素认证"},
+				{Label: "qr", Description: "扫码登录"},
 			})
 			if method < 0 {
 				ctx.Write("\n已取消\n\n")
