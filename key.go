@@ -538,8 +538,12 @@ func (t *TUI) updateSlashQueryFromInput() {
 func (t *TUI) updateSlashMatches() {
 	t.slashMatches = t.slashMatches[:0]
 	q := strings.ToLower(t.slashQuery)
+	// Only match against the part before the first space (command name).
+	if idx := strings.Index(q, " "); idx >= 0 {
+		q = q[:idx]
+	}
 	for i, c := range t.slashCmds {
-		if strings.Contains(strings.ToLower(c.Name), q) {
+		if strings.HasPrefix(strings.ToLower(c.Name), q) {
 			t.slashMatches = append(t.slashMatches, i)
 		}
 	}
