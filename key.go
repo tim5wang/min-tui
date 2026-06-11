@@ -515,6 +515,10 @@ func (t *TUI) processSlashKey(k keyEvent) {
 			t.exitSlashMode()
 		}
 		return
+	case k.pasted != "":
+		t.paste(k.pasted)
+		t.updateSlashQueryFromInput()
+		t.updateSlashMatches()
 	case k.special == keyUp:
 		if t.slashSelected > 0 {
 			t.slashSelected--
@@ -526,10 +530,28 @@ func (t *TUI) processSlashKey(k keyEvent) {
 	case k.special == keyBackspace:
 		t.backspace()
 		if t.inCursorCol == 0 {
-			// Backspaced past the / — exit slash mode.
 			t.exitSlashMode()
 			return
 		}
+		t.updateSlashQueryFromInput()
+		t.updateSlashMatches()
+	case k.special == keyForwardDelete, k.ctrl && k.r == 'd':
+		t.forwardDelete()
+		t.updateSlashQueryFromInput()
+		t.updateSlashMatches()
+	case k.special == keyLeft, k.ctrl && k.r == 'b':
+		t.moveCursor(-1, 0)
+	case k.special == keyRight, k.ctrl && k.r == 'f':
+		t.moveCursor(1, 0)
+	case k.special == keyHome, k.ctrl && k.r == 'a':
+		if t.inCursorCol > 0 {
+			t.inCursorCol = 1 // stay after /
+		}
+	case k.special == keyEnd, k.ctrl && k.r == 'e':
+		t.inCursorCol = len(t.inLines[t.inCursorRow])
+	case k.ctrl && k.r == 'u':
+		t.inLines[t.inCursorRow] = t.inLines[t.inCursorRow][:1] // keep /
+		t.inCursorCol = 1
 		t.updateSlashQueryFromInput()
 		t.updateSlashMatches()
 	case k.r > 0:
