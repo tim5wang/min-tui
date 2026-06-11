@@ -32,22 +32,36 @@ func (t *TUI) renderInputBox() {
 // ── status bar ───────────────────────────────────────────────────
 
 func (t *TUI) renderStatus() {
-	s := "\x1b[7m"
+	s := "\x1b[2m" // dim by default
 	switch t.statusStyle {
 	case StatusInfo:
-		s = "\x1b[44;37m"
+		s = "\x1b[2;37m" // dim + light fg
 	case StatusWarning:
-		s = "\x1b[43;30m"
+		s = "\x1b[2;33m" // dim + yellow fg
 	case StatusError:
-		s = "\x1b[41;37m"
+		s = "\x1b[2;31m" // dim + red fg
 	case StatusSuccess:
-		s = "\x1b[42;37m"
+		s = "\x1b[2;32m" // dim + green fg
 	}
 	text := t.statusText
-	if len(text) > t.width {
-		text = text[:t.width]
+	// Truncate by display width so CJK/emoji are not split mid-rune.
+	dw := displayWidth(text)
+	if dw > t.width {
+		var b strings.Builder
+		cur := 0
+		for _, r := range text {
+			rw := runeWidth(r)
+			if cur+rw > t.width {
+				break
+			}
+			b.WriteRune(r)
+			cur += rw
+		}
+		text = b.String()
+		dw = cur
 	}
-	t.writeRow(t.statusRow(), s+pad(text, t.width)+ansiReset)
+	t.writeRow(t.statusRow(),
+		s+text+ansiReset+strings.Repeat(" ", t.width-dw))
 }
 
 // ── row write (with cursor save/restore) ────────────────────────
