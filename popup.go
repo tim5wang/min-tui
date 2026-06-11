@@ -176,7 +176,7 @@ func (t *TUI) renderPopup(p *popupState) {
 	}
 
 	// Bottom border.
-	botBar := bc + "└" + strings.Repeat("─", w) + "┘" + rst
+	botBar := bc + "└" + strings.Repeat("─", w-2) + "┘" + rst
 	t.writeRow(p.y+h-1, botBar)
 }
 
