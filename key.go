@@ -492,10 +492,28 @@ func (t *TUI) exitSlashMode() {
 	t.renderInputBox()
 }
 
+// clearSlashInput removes the query text after /, keeping only the leading slash.
+func (t *TUI) clearSlashInput() {
+	line := t.inLines[t.inCursorRow]
+	if len(line) > 0 && line[0] == '/' {
+		t.inLines[t.inCursorRow] = line[:1]
+		t.inCursorCol = 1
+	}
+	t.slashQuery = ""
+	t.updateSlashMatches()
+}
+
 func (t *TUI) processSlashKey(k keyEvent) {
 	switch {
 	case k.r == 27: // Escape
-		t.exitSlashMode()
+		if t.slashQuery != "" {
+			t.clearSlashInput()
+			t.renderSlashDropdown()
+			t.renderInputBox()
+			t.renderStatus()
+		} else {
+			t.exitSlashMode()
+		}
 		return
 	case k.special == keyUp:
 		if t.slashSelected > 0 {
