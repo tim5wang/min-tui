@@ -481,6 +481,7 @@ func (t *TUI) enterSlashMode() {
 	t.slashQuery = ""
 	t.slashMatches = nil
 	t.slashSelected = 0
+	t.slashScrollOff = 0
 	t.updateSlashMatches()
 }
 
@@ -488,6 +489,7 @@ func (t *TUI) exitSlashMode() {
 	t.slashMode = false
 	t.slashDropdownH = 0
 	t.slashMatches = nil
+	t.slashScrollOff = 0
 	t.renderOutputScreen()
 	t.renderInputBox()
 }
@@ -500,6 +502,8 @@ func (t *TUI) clearSlashInput() {
 		t.inCursorCol = 1
 	}
 	t.slashQuery = ""
+	t.slashSelected = 0
+	t.slashScrollOff = 0
 	t.updateSlashMatches()
 }
 
@@ -601,6 +605,16 @@ func (t *TUI) updateSlashMatches() {
 	if t.slashSelected < 0 {
 		t.slashSelected = 0
 	}
+	// Keep selection visible within the dropdown window.
+	if t.slashSelected < t.slashScrollOff {
+		t.slashScrollOff = t.slashSelected
+	}
+	if t.slashSelected >= t.slashScrollOff+t.slashDropdownH {
+		t.slashScrollOff = t.slashSelected - t.slashDropdownH + 1
+	}
+	if t.slashScrollOff < 0 {
+		t.slashScrollOff = 0
+	}
 }
 
 // renderSlashDropdown draws the command suggestion list above the input box.
@@ -608,29 +622,26 @@ func (t *TUI) renderSlashDropdown() {
 	if !t.slashMode || t.slashDropdownH == 0 {
 		return
 	}
-	// Dropdown sits between output area and input box.
-	// output area was already rendered by processSlashKey caller.
-	startRow := t.outputRows() // first row of dropdown
+	startRow := t.outputRows()
 
 	for i := 0; i < t.slashDropdownH; i++ {
-		matchIdx := t.slashMatches[i]
-		cmd := t.slashCmds[matchIdx]
+		matchIdx := i + t.slashScrollOff
+		if matchIdx >= len(t.slashMatches) {
+			t.writeRow(startRow+i, "")
+			continue
+		}
+		cmd := t.slashCmds[t.slashMatches[matchIdx]]
 		prefix := "  "
-		if i == t.slashSelected {
-			prefix = "\x1b[7m> " // inverted highlight
-		} else {
-			prefix = "  "
+		suffix := ""
+		if matchIdx == t.slashSelected {
+			prefix = "\x1b[7m> "
+			suffix = "\x1b[0m"
 		}
-		line := fmt.Sprintf("%s/%-20s %s", prefix, cmd.Name, cmd.Description)
-		if i == t.slashSelected {
-			line += "\x1b[0m"
-		}
+		line := fmt.Sprintf("%s/%-20s %s%s", prefix, cmd.Name, cmd.Description, suffix)
 		t.writeRow(startRow+i, line)
 	}
-	// Clear any remaining dropdown rows from previous render.
-	prevH := startRow + t.slashDropdownH
-	maxPrev := t.inTopBorder() - 1
-	for i := prevH; i <= maxPrev; i++ {
+	// Clear remaining rows from previous render.
+	for i := startRow + t.slashDropdownH; i < t.inTopBorder(); i++ {
 		t.writeRow(i, "")
 	}
 }

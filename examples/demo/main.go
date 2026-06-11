@@ -121,6 +121,17 @@ func main() {
 		},
 	})
 
+	// Extra commands to test dropdown scrolling.
+	for i := 1; i <= 10; i++ {
+		name := fmt.Sprintf("cmd%d", i)
+		tui.RegisterCommand(minitui.SlashCommand{
+			Name: name, Description: fmt.Sprintf("测试命令 %d", i),
+			Handler: func(ctx *minitui.CommandContext) {
+				ctx.Write("\n执行: " + ctx.Args + "\n\n")
+			},
+		})
+	}
+
 	tui.SetStatus("输入 / 唤起命令 | Enter 提交 | Shift+Enter/Ctrl+J 换行", minitui.StatusInfo)
 
 	for {

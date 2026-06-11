@@ -164,6 +164,7 @@ type TUI struct {
 	slashMatches   []int
 	slashSelected  int
 	slashDropdownH int
+	slashScrollOff int // first visible match index
 
 	// Modal input (multi-turn slash commands).
 	modal chan string
