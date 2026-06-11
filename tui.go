@@ -448,13 +448,13 @@ func (t *TUI) ReadLine() (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("minitui: read key: %w", err)
 		}
-		t.mu.Lock()
 
-		// Global key handler (useful for triggering popups).
+		// Global key handler — before lock so PushPopup does not deadlock.
 		if t.globalKeyFn != nil && t.globalKeyFn(keyEventFromInternal(key)) {
-			t.mu.Unlock()
 			continue
 		}
+
+		t.mu.Lock()
 
 		// Popup active: dispatch key to popup, skip normal processing.
 		if len(t.popups) > 0 {
