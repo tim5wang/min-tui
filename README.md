@@ -3,7 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/tim5wang/min-tui.svg)](https://pkg.go.dev/github.com/tim5wang/min-tui)
 
 A lightweight terminal UI library in pure Go, purpose-built for **coding agents**.  
-Features streaming output, multi-line input with markdown rendering, slash commands, and a status bar — around 1500 lines.
+Streaming output, multi-line input, markdown, slash commands, popups — ~1800 lines.
 
 <p align="center">
   <img src="examples/demo/image.png" alt="min-tui demo screenshot" width="720">
@@ -15,26 +15,22 @@ go get github.com/tim5wang/min-tui
 
 ## Features
 
-- **Streaming output** — `Write()` renders content incrementally; overflow is committed to the terminal scrollback so history is scrollable
-- **Multi-line input** — `Shift+Enter` / `Ctrl+J` inserts newlines; input box expands up to `MaxInputRows` (default 8), then scrolls internally
-- **Slash commands** — `/name` triggers a filtered dropdown; arrow keys navigate, Enter selects, Esc cancels
-- **Multi-turn interaction** — handlers use `Prompt()` for text input and `Select()` for secondary menus, written like synchronous code
-- **Markdown rendering** — headings (`#`), **bold**, *italic*, `inline code`, fenced code blocks, and aligned tables
-- **Status bar** — fixed at the bottom, 5 built-in styles (default / info / warning / error / success)
-- **Configurable** — custom border color, custom markdown renderer, event channel
-- **Concurrency-safe** — `Write()` can be called from any goroutine while `ReadLine()` is blocking
+- **Streaming output** — `Write()` renders incrementally; overflow enters terminal scrollback
+- **Multi-line input** — `Shift+Enter` / `Ctrl+J` newlines; input box expands to `MaxInputRows` (default 8)
+- **Slash commands** — `/name` filtered dropdown; arrow keys navigate, Enter selects, Esc cancels
+- **Multi-turn interaction** — `Prompt()` for text, `Select()` for menus, written like sync code
+- **Popup windows** — overlay dialogs with focus switching (Tab), interactive `OnKey`, custom colors
+- **Markdown** — headings, **bold**, *italic*, `inline code`, fenced blocks, aligned tables
+- **Status bar** — 5 styles (default / info / warning / error / success)
+- **Configurable** — border color, custom markdown renderer, event channel
+- **Concurrency-safe** — `Write()` from any goroutine while `ReadLine()` blocks
 
 ## Quick Start
 
 ```go
 package main
 
-import (
-    "fmt"
-    "os"
-
-    "github.com/tim5wang/min-tui"
-)
+import "github.com/tim5wang/min-tui"
 
 func main() {
     tui, _ := minitui.New()
@@ -45,7 +41,6 @@ func main() {
     for {
         input, err := tui.ReadLine()
         if err != nil { return }
-
         tui.WriteString("You said: " + input + "\n")
     }
 }
@@ -53,143 +48,115 @@ func main() {
 
 ## API
 
-### Creating a TUI
-
 ```go
-// Defaults.
 tui, _ := minitui.New()
-
-// With configuration.
 tui, _ := minitui.NewWithConfig(minitui.Config{
-    EventCh:      myEventCh,
-    BorderColor:  "\x1b[36m",   // cyan borders
-    RenderLine:   myRenderer,    // custom markdown→ANSI
+    EventCh:      myEventCh,         // optional
+    BorderColor:  "\x1b[36m",       // input box borders
+    RenderLine:   myRenderer,        // custom markdown→ANSI
     MaxInputRows: 12,
 })
-```
 
-### Writing Output
-
-```go
-tui.WriteString("streaming output\n")
-tui.Write([]byte("bytes too\n"))
-```
-
-Lines are buffered until `\n`, then rendered immediately. Safe for concurrent use.
-
-### Reading Input
-
-```go
-input, err := tui.ReadLine()  // blocks until Enter
-// err != nil → Ctrl+C
-```
-
-### Status Bar
-
-```go
-tui.SetStatus("processing...", minitui.StatusWarning)
-tui.SetStatus("done!",         minitui.StatusSuccess)
-```
-
-### Events (optional)
-
-```go
-eventCh := make(chan minitui.Event, 8)
-tui, _ := minitui.NewWithConfig(minitui.Config{EventCh: eventCh})
-
-go func() {
-    for ev := range eventCh {
-        switch ev.Type {
-        case minitui.EventSubmit:    // input submitted
-        case minitui.EventResize:    // terminal resized
-        case minitui.EventInterrupt: // Ctrl+C
-        }
-    }
-}()
+tui.WriteString("output\n")          // streaming output
+input, err := tui.ReadLine()         // blocking (Ctrl+C → err)
+tui.SetStatus("...", minitui.StatusWarning)
+defer tui.Close()                    // restore terminal
 ```
 
 ## Slash Commands
-
-### Registering Commands
-
-```go
-tui.RegisterCommand(minitui.SlashCommand{
-    Name:        "help",
-    Description: "Show help",
-    Handler: func(ctx *minitui.CommandContext) {
-        ctx.Write("Available commands: /help, /echo, /login\n")
-    },
-})
-```
-
-### Multi-turn Interaction
-
-The `CommandContext` provides blocking methods that work inside the handler goroutine:
-
-```go
-// Prompt — wait for the user to type and press Enter.
-name := ctx.Prompt("What's your name?")
-
-// Select — show a dropdown menu, return chosen index (or -1 on Esc).
-method := ctx.Select("Pick a method", []minitui.SelectOption{
-    {Label: "password", Description: "Login with password"},
-    {Label: "token",    Description: "Login with token"},
-})
-
-// Write — output to the history area.
-ctx.Write("Hello, " + name + "\n")
-
-// SetStatus — update the status bar.
-ctx.SetStatus("Ready", minitui.StatusSuccess)
-```
-
-### Complete Multi-step Example
 
 ```go
 tui.RegisterCommand(minitui.SlashCommand{
     Name: "login",
     Handler: func(ctx *minitui.CommandContext) {
-        // Step 1: secondary menu
-        method := ctx.Select("选择登录方式", []minitui.SelectOption{
-            {Label: "password", Description: "用户名 + 密码"},
+        // secondary menu
+        method := ctx.Select("选择方式", []minitui.SelectOption{
+            {Label: "password", Description: "用户名+密码"},
             {Label: "token",    Description: "Token 认证"},
         })
-        if method < 0 { return }
+        if method < 0 { return }           // Esc cancelled
 
-        // Step 2: text input
-        if method == 0 {
-            username := ctx.Prompt("用户名")
-            password := ctx.Prompt("密码")
-            ctx.Write("登录成功: " + username + "\n")
-        } else {
-            token := ctx.Prompt("Token")
-            ctx.Write("Token 认证成功\n")
-        }
+        // text input
+        username := ctx.Prompt("用户名")
+        password := ctx.Prompt("密码")
+
+        ctx.Write("登录成功: " + username + "\n")
+        ctx.SetStatus("就绪", minitui.StatusSuccess)
     },
 })
 ```
+
+### CommandContext Methods
+
+| Method | Description |
+|--------|-------------|
+| `Prompt(prompt) string` | Block until user presses Enter, return text |
+| `Select(prompt, opts) int` | Show dropdown, return index (-1 = Esc) |
+| `Write(s)` | Output to history area |
+| `SetStatus(text, style)` | Update status bar |
+
+## Popup Windows
+
+```go
+// Open a popup by registering a global key handler.
+tui.SetGlobalKeyHandler(func(k minitui.KeyEvent) bool {
+    if k.Ctrl && k.Rune == 'p' {
+        tui.PushPopup(minitui.Popup{
+            Title:  "Help",
+            Width:  40, Height: 12,
+            Render: func(w, h int) []string {
+                return []string{"", "  Esc to close", "", "  Tab to toggle focus"}
+            },
+            OnKey: func(k minitui.KeyEvent) minitui.PopupAction {
+                if k.Special == minitui.KeyDown { return minitui.PopupUpdate }
+                return minitui.PopupPassthrough
+            },
+        })
+        return true
+    }
+    return false
+})
+```
+
+### Popup Fields
+
+| Field | Description |
+|-------|-------------|
+| `Title` | Window title |
+| `Width`, `Height` | Size (0 = auto) |
+| `BorderColor` | ANSI color when focused, default cyan |
+| `BgColor` | Background when focused, default white |
+| `BorderColorUnfocus` | Border when unfocused, default dim cyan |
+| `BgColorUnfocus` | Background when unfocused, default gray |
+| `Render(w,h)` | Return content lines |
+| `OnKey` | Handle keys → `PopupPassthrough` / `PopupUpdate` / `PopupClose` |
+| `OnClose` | Called after popup removed |
+
+### Focus & Interaction
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Toggle focus between input ↔ popup |
+| `Esc` | Close popup |
+| Focused popup | Bright border, keys go to `OnKey` |
+| Unfocused popup | Dim border, keys pass through to input editor |
 
 ## Key Bindings
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Submit input / confirm selection |
-| `Shift+Enter` | Insert newline |
-| `Ctrl+J` | Insert newline (always works) |
+| `Enter` | Submit / confirm |
+| `Shift+Enter` / `Ctrl+J` | Insert newline |
 | `Ctrl+C` | Interrupt |
-| `Esc` | Cancel slash / close dropdown |
-| `↑` `↓` | Navigate dropdown / select menu |
+| `Esc` | Cancel slash / close popup |
+| `Tab` | Insert spaces (normal) / toggle popup focus |
+| `↑` `↓` | Navigate dropdowns |
 | `←` `→` | Move cursor |
-| `Home` `End` | Jump to start/end of line |
-| `Ctrl+A` `Ctrl+E` | Same as Home/End |
-| `Ctrl+K` | Delete to end of line |
-| `Ctrl+U` | Delete to start of line |
-| `Ctrl+W` | Delete previous word |
-| `Backspace` | Delete before cursor |
-| `Delete` | Delete at cursor |
-| `Tab` | Insert 4 spaces |
+| `Home` `End` | Jump start/end of line |
+| `Ctrl+A` `E` `K` `U` `W` | Emacs shortcuts |
+| `Backspace` / `Delete` | Delete char |
 
-## Markdown Support
+## Markdown
 
 | Syntax | Rendering |
 |--------|-----------|
@@ -197,30 +164,18 @@ tui.RegisterCommand(minitui.SlashCommand{
 | `**text**` | **Bold** |
 | `*text*` | *Italic* |
 | `` `code` `` | Dim |
-| ` ``` ... ``` ` | Dim block |
+| ` ``` ``` ` | Dim block |
 | `\| col \| col \|` | Aligned table |
-
-## Configuration
-
-```go
-type Config struct {
-    EventCh      chan<- Event           // async event channel
-    RenderLine   func(string) string    // custom markdown→ANSI renderer
-    BorderColor  string                 // e.g. "\x1b[34m" for blue
-    MaxInputRows int                    // default 8
-}
-```
 
 ## Dependencies
 
-Only [`golang.org/x/term`](https://pkg.go.dev/golang.org/x/term) — terminal raw mode and size detection.
+Only [`golang.org/x/term`](https://pkg.go.dev/golang.org/x/term).
 
 ## Terminal Support
 
-Tested on **iTerm2**, **Terminal.app**, **WezTerm**, **Kitty**, **VS Code integrated terminal**.
+**iTerm2**, **Terminal.app**, **WezTerm**, **Kitty**, **VS Code** terminal.
 
-- **Shift+Enter** needs kitty/XTerm modifyOtherKeys protocol (modern terminals). Use **Ctrl+J** as universal fallback.
-- Bracketed paste mode enabled for reliable multi-line paste.
+- `Shift+Enter` needs kitty/XTerm modifyOtherKeys. Use `Ctrl+J` as universal fallback.
 
 ## License
 
