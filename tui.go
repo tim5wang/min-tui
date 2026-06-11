@@ -456,11 +456,13 @@ func (t *TUI) ReadLine() (string, error) {
 
 		t.mu.Lock()
 
-		// Popup active: dispatch key to popup, skip normal processing.
+		// Popup active: handle Esc / OnKey, otherwise normal input editing.
 		if len(t.popups) > 0 {
-			t.processPopupKey(key)
-			t.mu.Unlock()
-			continue
+			if t.handlePopupKey(key) {
+				t.mu.Unlock()
+				continue
+			}
+			// Key not consumed by popup — fall through to normal processing.
 		}
 
 		if key.ctrl && (key.r == 'c' || key.r == 'C') {

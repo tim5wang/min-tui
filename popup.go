@@ -134,9 +134,26 @@ func (t *TUI) renderPopup(p *popupState) {
 
 // ── internal: popup key dispatch ─────────────────────────────────
 
-// processPopupKey is called from processKey when a popup is active.
-func (t *TUI) processPopupKey(k keyEvent) {
+// handlePopupKey returns true if the key was consumed (Esc or OnKey).
+func (t *TUI) handlePopupKey(k keyEvent) bool {
 	if k.r == 27 { // Escape
+		t.popPopup()
+		t.renderAfterPopupClose()
+		return true
+	}
+	top := t.popups[len(t.popups)-1]
+	if top.OnKey != nil && top.OnKey(keyEventFromInternal(k)) {
+		t.popPopup()
+		t.renderAfterPopupClose()
+		return true
+	}
+	return false
+}
+
+// processPopupKey is called from processKey when a popup is active
+// and the key wasn't consumed by the ReadLine dispatch.
+func (t *TUI) processPopupKey(k keyEvent) {
+	if k.r == 27 {
 		t.popPopup()
 		t.renderAfterPopupClose()
 		return
@@ -147,10 +164,6 @@ func (t *TUI) processPopupKey(k keyEvent) {
 		t.renderAfterPopupClose()
 		return
 	}
-	// Re-render (content may have changed).
-	t.renderPopup(top)
-	t.renderInputBox()
-	t.renderStatus()
 }
 
 func (t *TUI) popPopup() {

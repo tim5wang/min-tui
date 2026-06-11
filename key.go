@@ -167,6 +167,8 @@ func (t *TUI) parseKitty(data []byte) keyEvent {
 	switch code {
 	case 13:
 		ev.enter = true
+	case 27:
+		ev.r = 27 // Escape
 	case 127, 57355:
 		ev.special = keyBackspace
 	case 9:
