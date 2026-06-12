@@ -13,7 +13,9 @@ import (
 
 func main() {
 	tui, err := minitui.NewWithConfig(minitui.Config{
-		BorderColor: "\x1b[36m", // cyan input borders
+		BorderColor:      "\x1b[36m", // cyan input borders
+		ShowHeadingMarks: true,        // show ## marks
+		Spacious:         true,        // blank lines between blocks
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

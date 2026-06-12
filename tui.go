@@ -119,6 +119,14 @@ type Config struct {
 
 	// MaxInputRows: maximum visible rows in the input box. Default: 8.
 	MaxInputRows int
+
+	// ShowHeadingMarks: when true, # marks are visible (e.g. "## Title").
+	// Default: false (only bold text).
+	ShowHeadingMarks bool
+
+	// Spacious: when true, blank lines are inserted before/after headings,
+	// code blocks, and tables for readability. Default: false (compact).
+	Spacious bool
 }
 
 // TUI is the main text user interface.
@@ -138,6 +146,7 @@ type TUI struct {
 
 	pendingRaw  []byte
 	inCodeBlock bool
+	pendingGap  bool // insert blank line before next block (Spacious mode)
 	tableBuf    []string
 	codeLang    string // fence info string for current code block
 
@@ -157,6 +166,8 @@ type TUI struct {
 	customRender func(string) string
 	borderColor  string
 	maxInputRows int
+	showMarks    bool // heading marks visible
+	spacious     bool // blank lines between blocks
 
 	// Slash commands.
 	slashCmds      []SlashCommand
@@ -227,6 +238,8 @@ func NewWithConfig(cfg Config) (*TUI, error) {
 		customRender: cfg.RenderLine,
 		borderColor:  bc,
 		maxInputRows: maxRows,
+		showMarks:    cfg.ShowHeadingMarks,
+		spacious:     cfg.Spacious,
 	}
 
 	fmt.Fprint(os.Stdout, "\x1b[?2004h\x1b[>1u\x1b[>4;2m")
@@ -332,27 +345,50 @@ func (t *TUI) emitLine(raw string) {
 	if len(t.tableBuf) > 0 && !isTableLine(raw) {
 		t.flushTable()
 	}
+
 	if isCodeFence(raw) {
 		t.inCodeBlock = !t.inCodeBlock
 		if t.inCodeBlock {
 			t.codeLang = extractLang(raw)
+			t.maybeInsertGap()
 		} else {
 			t.codeLang = ""
+			t.pendingGap = t.spacious
 		}
 		t.appendRendered(t.renderLine(raw, nil, true))
 		return
 	}
-	var ansi string
+
 	if t.inCodeBlock {
 		if t.codeLang != "" {
-			ansi = highlightCodeBlock(raw, t.codeLang)
+			t.appendRendered(highlightCodeBlock(raw, t.codeLang))
 		} else {
-			ansi = t.renderLine(raw, nil, true)
+			t.appendRendered(t.renderLine(raw, nil, true))
 		}
-	} else {
-		ansi = t.renderLine(raw, &t.tableBuf, false)
+		return
 	}
-	t.appendRendered(ansi)
+
+	// Headings trigger spacing in spacious mode.
+	if t.spacious && isHeadingLine(raw) {
+		t.maybeInsertGap()
+		t.appendRendered(t.renderLine(raw, &t.tableBuf, false))
+		t.pendingGap = true
+		return
+	}
+
+	// Table start — gap before first row.
+	if t.spacious && isTableLine(raw) && len(t.tableBuf) == 0 {
+		t.maybeInsertGap()
+	}
+
+	t.appendRendered(t.renderLine(raw, &t.tableBuf, false))
+}
+
+func (t *TUI) maybeInsertGap() {
+	if t.pendingGap && len(t.outAnsi) > 0 && t.outAnsi[len(t.outAnsi)-1] != "" {
+		t.outAnsi = append(t.outAnsi, "")
+	}
+	t.pendingGap = false
 }
 
 func (t *TUI) flushTable() {

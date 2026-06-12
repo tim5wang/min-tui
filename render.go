@@ -94,7 +94,7 @@ func (t *TUI) renderLine(raw string, tableBuf *[]string, forceDim bool) string {
 	if forceDim {
 		return ansiDim + raw + ansiReset
 	}
-	return renderInline(raw)
+	return t.renderInline(raw)
 }
 
 // ── table ────────────────────────────────────────────────────────
@@ -176,14 +176,24 @@ func isTableSep(s string) bool {
 }
 func isCodeFence(s string) bool { return strings.HasPrefix(s, "```") || strings.HasPrefix(s, "~~~") }
 
+func isHeadingLine(s string) bool {
+	if len(s) == 0 || s[0] != '#' { return false }
+	lvl := 0
+	for lvl < len(s) && s[lvl] == '#' { lvl++ }
+	return lvl <= 6 && (lvl == len(s) || s[lvl] == ' ')
+}
+
 // ── inline markdown ─────────────────────────────────────────────
 
-func renderInline(s string) string {
+func (t *TUI) renderInline(s string) string {
 	if s == "" { return s }
 	if s[0] == '#' {
 		lvl := 0
 		for lvl < len(s) && s[lvl] == '#' { lvl++ }
 		if lvl <= 6 && (lvl == len(s) || s[lvl] == ' ') {
+			if t.showMarks {
+				return ansiBold + s + ansiReset
+			}
 			return ansiBold + strings.TrimLeft(s[lvl:], " ") + ansiReset
 		}
 	}
