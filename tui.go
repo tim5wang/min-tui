@@ -139,6 +139,7 @@ type TUI struct {
 	pendingRaw  []byte
 	inCodeBlock bool
 	tableBuf    []string
+	codeLang    string // fence info string for current code block
 
 	// Input editor.
 	inLines     [][]rune
@@ -333,12 +334,21 @@ func (t *TUI) emitLine(raw string) {
 	}
 	if isCodeFence(raw) {
 		t.inCodeBlock = !t.inCodeBlock
+		if t.inCodeBlock {
+			t.codeLang = extractLang(raw)
+		} else {
+			t.codeLang = ""
+		}
 		t.appendRendered(t.renderLine(raw, nil, true))
 		return
 	}
 	var ansi string
 	if t.inCodeBlock {
-		ansi = t.renderLine(raw, nil, true)
+		if t.codeLang != "" {
+			ansi = highlightCodeBlock(raw, t.codeLang)
+		} else {
+			ansi = t.renderLine(raw, nil, true)
+		}
 	} else {
 		ansi = t.renderLine(raw, &t.tableBuf, false)
 	}

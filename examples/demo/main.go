@@ -169,6 +169,15 @@ func main() {
 		tui.WriteString("| 香蕉 | 5 | - |\n")
 		tui.WriteString("| 橙子 | 20 | 进口 |\n")
 		tui.WriteString("\n你好世界 🌍 中文测试\n\n")
+		tui.WriteString("\n代码高亮示例：\n")
+		tui.WriteString("\n```go\n")
+		tui.WriteString("func main() {\n")
+		tui.WriteString("    // print greeting\n")
+		tui.WriteString("    name := \"world\"\n")
+		tui.WriteString("    fmt.Println(\"Hello, \" + name)\n")
+		tui.WriteString("    return\n")
+		tui.WriteString("}\n")
+		tui.WriteString("```\n\n")
 
 		tui.SetStatus("Enter 提交 | Shift+Enter/Ctrl+J 换行 | Ctrl+C 退出", minitui.StatusInfo)
 	}
