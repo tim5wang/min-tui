@@ -385,9 +385,22 @@ func (t *TUI) emitLine(raw string) {
 }
 
 func (t *TUI) maybeInsertGap() {
-	if t.pendingGap && len(t.outAnsi) > 0 && t.outAnsi[len(t.outAnsi)-1] != "" {
-		t.outAnsi = append(t.outAnsi, "")
+	if !t.pendingGap || len(t.outAnsi) == 0 {
+		t.pendingGap = false
+		return
 	}
+	// Don't duplicate blank lines.
+	if t.outAnsi[len(t.outAnsi)-1] == "" {
+		t.pendingGap = false
+		return
+	}
+	// Only insert gap if visible area has room (≥2 rows slack).
+	vis := t.outputRows()
+	if len(t.outAnsi) >= vis-1 {
+		t.pendingGap = false
+		return
+	}
+	t.outAnsi = append(t.outAnsi, "")
 	t.pendingGap = false
 }
 
