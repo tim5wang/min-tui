@@ -24,15 +24,16 @@ import (
 // MaxInputHeight is the default maximum visible lines in the input box.
 const MaxInputHeight = 8
 
-// StatusStyle defines the visual style of the status bar.
+// StatusStyle controls the color and weight of the status bar text.
 type StatusStyle int
 
+// Status bar styles.
 const (
-	StatusDefault StatusStyle = iota
-	StatusInfo
-	StatusWarning
-	StatusError
-	StatusSuccess
+	StatusDefault StatusStyle = iota // dim white — neutral idle state
+	StatusInfo                        // cyan    — informational hints
+	StatusWarning                    // yellow  — in-progress / pending action
+	StatusError                      // red     — failed operations
+	StatusSuccess                    // green   — successful completion
 )
 
 const (
@@ -46,9 +47,9 @@ const (
 type EventType int
 
 const (
-	EventSubmit    EventType = iota // user submitted input
-	EventResize                      // terminal resized
-	EventInterrupt                  // user pressed Ctrl+C
+	EventSubmit    EventType = iota // user submitted input (also returned by ReadLine)
+	EventResize                     // terminal was resized
+	EventInterrupt                 // user pressed Ctrl+C
 )
 
 // SelectOption is a single item in a secondary selection menu.

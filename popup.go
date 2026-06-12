@@ -30,10 +30,16 @@ func keyEventFromInternal(k keyEvent) KeyEvent {
 // PopupAction controls what happens after OnKey processes a key.
 type PopupAction int
 
+// Popup action return values for Popup.OnKey.
 const (
-	PopupPassthrough PopupAction = iota // key not handled — normal input
-	PopupUpdate                            // key handled — re-render popup
-	PopupClose                             // close popup
+	// PopupPassthrough means the key was not handled — the input editor
+	// will receive it as if no popup were focused.
+	PopupPassthrough PopupAction = iota
+	// PopupUpdate means the key was handled — re-render the popup and
+	// the input box (e.g. user moved a cursor inside the popup).
+	PopupUpdate
+	// PopupClose dismisses the popup immediately.
+	PopupClose
 )
 
 // Popup configures an overlay window.  Popups are rendered on top of the
