@@ -389,14 +389,7 @@ func (t *TUI) maybeInsertGap() {
 		t.pendingGap = false
 		return
 	}
-	// Don't duplicate blank lines.
 	if t.outAnsi[len(t.outAnsi)-1] == "" {
-		t.pendingGap = false
-		return
-	}
-	// Only insert gap if visible area has room (≥2 rows slack).
-	vis := t.outputRows()
-	if len(t.outAnsi) >= vis-1 {
 		t.pendingGap = false
 		return
 	}
@@ -425,6 +418,38 @@ func (t *TUI) appendRendered(s string) {
 	}
 }
 
+// commitOverflow pushes non-blank content lines beyond vis into scrollback.
+// Blank spacing lines are skipped so gaps don't push real content off-screen.
+func (t *TUI) commitOverflow() {
+	vis := t.outputRows()
+	if len(t.outAnsi) <= vis {
+		return
+	}
+	// Count content (non-blank) lines to commit.
+	need := len(t.outAnsi) - vis
+	var lines []string
+	i := t.pushed
+	for i < len(t.outAnsi) && len(lines) < need {
+		if t.outAnsi[i] != "" {
+			lines = append(lines, t.outAnsi[i])
+		}
+		i++
+	}
+	if len(lines) == 0 {
+		t.pushed = i
+		return
+	}
+	t.pushed = i
+
+	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", vis)
+	fmt.Fprintf(os.Stdout, "\x1b[%d;1H", vis)
+	for _, line := range lines {
+		fmt.Fprintf(os.Stdout, "%s\r\n", line)
+	}
+	fmt.Fprint(os.Stdout, "\x1b[r")
+	os.Stdout.Sync()
+}
+
 // renderAfterWrite is called after new output lines have been appended.
 // It commits overflow to scrollback and renders the visible portion.
 func (t *TUI) renderAfterWrite() {
@@ -433,22 +458,8 @@ func (t *TUI) renderAfterWrite() {
 		return
 	}
 
-	// 1. Commit lines that have scrolled off the visible area to terminal scrollback.
-	if len(t.outAnsi) > vis && t.pushed < len(t.outAnsi)-vis {
-		newLines := t.outAnsi[t.pushed : len(t.outAnsi)-vis]
-
-		// Use a temporary scroll region for the output area.
-		fmt.Fprintf(os.Stdout, "\x1b[1;%dr", vis)
-		fmt.Fprintf(os.Stdout, "\x1b[%d;1H", vis)
-		for _, line := range newLines {
-			fmt.Fprintf(os.Stdout, "%s\r\n", line)
-		}
-		// Restore full screen — no persistent scroll region.
-		fmt.Fprint(os.Stdout, "\x1b[r")
-		os.Stdout.Sync()
-
-		t.pushed = len(t.outAnsi) - vis
-	}
+	// 1. Commit overflowing content lines to scrollback (skip blank spacing).
+	t.commitOverflow()
 
 	// 2. Render visible output rows.
 	t.renderOutputScreen()
