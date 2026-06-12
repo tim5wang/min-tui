@@ -91,6 +91,10 @@ func (t *TUI) renderLine(raw string, tableBuf *[]string, forceDim bool) string {
 		*tableBuf = append(*tableBuf, raw)
 		return ""
 	}
+	// Blockquote: > text
+	if isBlockquote(raw) {
+		return "\x1b[100m" + raw + ansiReset
+	}
 	if forceDim {
 		return ansiDim + raw + ansiReset
 	}
@@ -175,6 +179,7 @@ func isTableSep(s string) bool {
 	return true
 }
 func isCodeFence(s string) bool { return strings.HasPrefix(s, "```") || strings.HasPrefix(s, "~~~") }
+func isBlockquote(s string) bool { return strings.HasPrefix(s, "> ") || s == ">" }
 
 func isHeadingLine(s string) bool {
 	if len(s) == 0 || s[0] != '#' { return false }

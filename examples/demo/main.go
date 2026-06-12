@@ -149,6 +149,8 @@ func main() {
 		// Markdown demo.
 		tui.WriteString("\n\n---\n**以上是你的输入**\n\n")
 		tui.WriteString("# 一级标题\n**粗体** *斜体* `行内代码`\n\n")
+		tui.WriteString("> 这是引用文本 — 背景灰底\n")
+		tui.WriteString("> 用于展示用户说的话\n\n")
 		tui.WriteString("| 名称 | 数量 | 备注 |\n|------|------|------|\n| 苹果 | 10 | 新鲜 |\n| 香蕉 | 5 | - |\n| 橙子 | 20 | 进口 |\n\n")
 
 		// Code highlighting demo.
