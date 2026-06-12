@@ -91,9 +91,9 @@ func (t *TUI) renderLine(raw string, tableBuf *[]string, forceDim bool) string {
 		*tableBuf = append(*tableBuf, raw)
 		return ""
 	}
-	// Blockquote: > text
+	// Blockquote: > text (pad to full width for solid background).
 	if isBlockquote(raw) {
-		return "\x1b[100m" + raw + ansiReset
+		return "\x1b[100m" + padTo(raw, t.width) + ansiReset
 	}
 	if forceDim {
 		return ansiDim + raw + ansiReset
