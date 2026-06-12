@@ -1,60 +1,40 @@
-// Demo: echo server with configurable border color, event callbacks, and custom rendering.
-// Press Enter to submit, Shift+Enter or Ctrl+J for newline, Ctrl+C to quit.
+// Demo: showcase all min-tui features — streaming output, markdown,
+// code highlighting, slash commands, multi-turn interaction, and popups.
+// Press Enter to submit · Shift+Enter / Ctrl+J for newline · Ctrl+C to quit.
 package main
 
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/tim5wang/min-tui"
 )
 
 func main() {
-	// Optional: event channel for async input handling.
-	eventCh := make(chan minitui.Event, 8)
-	go func() {
-		for ev := range eventCh {
-			switch ev.Type {
-			case minitui.EventResize:
-				// Terminal was resized.
-			case minitui.EventSubmit:
-				// Input received (also returned by ReadLine).
-				_ = ev.Input
-			case minitui.EventInterrupt:
-				// Ctrl+C pressed.
-			}
-		}
-	}()
-
 	tui, err := minitui.NewWithConfig(minitui.Config{
-		EventCh:    eventCh,
-		BorderColor: "\x1b[36m", // cyan borders
-		// RenderLine: customRender,  // uncomment to use custom markdown renderer
+		BorderColor: "\x1b[36m", // cyan input borders
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer func() { close(eventCh); tui.Close() }()
+	defer tui.Close()
 
-	// Global key handler: Ctrl+P opens an interactive popup.
+	// ── popup: Ctrl+P opens interactive key-bindings window ──────
 	tui.SetGlobalKeyHandler(func(k minitui.KeyEvent) bool {
 		if k.Ctrl && k.Rune == 'p' {
 			page := 0
 			pages := [][]string{
-				{"", "  Enter       Submit input", "  Shift+Enter Newline", "  Ctrl+J      Newline (fallback)", "  /           Slash commands", "  Ctrl+P      This popup", "  Ctrl+C      Quit", "  Tab         Switch focus", "", "  ←→ page 1/2"},
-				{"", "  ↑↓          Navigate popups", "  Esc         Close popup", "  Tab toggles input↔popup", "  Popup shows active", "  or dimmed border", "", "  ←→ page 1/2"},
+				{"", " Enter        Submit input", " Shift+Enter  Newline", " Ctrl+J       Newline (fallback)", " /            Slash commands", " Ctrl+P       This popup", " Ctrl+C       Quit", " Tab          Switch focus", "", " ←→ page 1/2"},
+				{"", " Built-in features:", "", " • Markdown: headings **bold** *italic* `code`", " • Tables with aligned columns", " • Code blocks with syntax highlighting", " • Slash commands with /dropdown", " • Multi-turn interaction (Prompt/Select)", " • Popup windows (Tab focus)", "", " ←→ page 1/2"},
 			}
 			tui.PushPopup(minitui.Popup{
 				Title:       "Key Bindings",
-				Width:       42, Height: 13,
+				Width:       44, Height: 13,
 				BorderColor: "\x1b[35m",
 				BgColor:     "\x1b[47;30m",
-				Render: func(w, h int) []string {
-					return pages[page]
-				},
+				Render: func(w, h int) []string { return pages[page] },
 				OnKey: func(k minitui.KeyEvent) minitui.PopupAction {
 					if k.Special == minitui.KeyLeft || k.Special == minitui.KeyRight {
 						page = (page + 1) % len(pages)
@@ -68,34 +48,46 @@ func main() {
 		return false
 	})
 
-	// Register slash commands — type / in the input box to see the dropdown.
+	// ── slash commands ───────────────────────────────────────────
 	tui.RegisterCommand(minitui.SlashCommand{
 		Name: "help", Description: "显示帮助信息",
 		Handler: func(ctx *minitui.CommandContext) {
-			ctx.Write("\n**帮助**\n")
-			ctx.Write("- Enter 提交 | Shift+Enter/Ctrl+J 换行\n")
-			ctx.Write("- /help /echo /login 等命令\n")
-			ctx.Write("- Ctrl+C 退出\n\n")
+			ctx.Write("\n**min-tui 帮助**\n\n")
+			ctx.Write("- 输入文字后按 **Enter** 提交\n")
+			ctx.Write("- **Shift+Enter** / **Ctrl+J** 换行\n")
+			ctx.Write("- 输入 **/** 唤起命令面板\n")
+			ctx.Write("- **Ctrl+P** 弹出快捷键帮助\n\n")
 		},
 	})
 	tui.RegisterCommand(minitui.SlashCommand{
-		Name: "echo", Description: "回显输入的参数",
+		Name: "echo", Description: "回显参数",
 		Handler: func(ctx *minitui.CommandContext) {
 			ctx.Write("\n**Echo:** " + ctx.Args + "\n\n")
 		},
 	})
 	tui.RegisterCommand(minitui.SlashCommand{
-		Name: "login", Description: "多轮交互示例 — 二级菜单选择",
+		Name: "code", Description: "展示代码高亮",
 		Handler: func(ctx *minitui.CommandContext) {
-			// 二级菜单：选择登录方式
+			lang := ctx.Args
+			if lang == "" {
+				lang = "go"
+			}
+			ctx.Write("```" + lang + "\n")
+			ctx.Write(sampleCode(lang))
+			ctx.Write("```\n\n")
+		},
+	})
+	tui.RegisterCommand(minitui.SlashCommand{
+		Name: "login", Description: "多轮交互 — 二级菜单选择",
+		Handler: func(ctx *minitui.CommandContext) {
 			method := ctx.Select("选择登录方式", []minitui.SelectOption{
-				{Label: "password", Description: "用户名 + 密码登录"},
-				{Label: "token", Description: "Token 认证登录"},
+				{Label: "password", Description: "用户名 + 密码"},
+				{Label: "token", Description: "Token 认证"},
 				{Label: "guest", Description: "访客模式"},
-				{Label: "oauth", Description: "OAuth 2.0 授权"},
-				{Label: "sso", Description: "单点登录 SSO"},
-				{Label: "ldap", Description: "LDAP 目录认证"},
-				{Label: "api_key", Description: "API Key 认证"},
+				{Label: "oauth", Description: "OAuth 2.0"},
+				{Label: "sso", Description: "单点登录"},
+				{Label: "ldap", Description: "LDAP 目录"},
+				{Label: "api_key", Description: "API Key"},
 				{Label: "mfa", Description: "多因素认证"},
 				{Label: "qr", Description: "扫码登录"},
 			})
@@ -103,32 +95,26 @@ func main() {
 				ctx.Write("\n已取消\n\n")
 				return
 			}
-
 			switch method {
-			case 0: // password
-				ctx.SetStatus("请输入用户名", minitui.StatusWarning)
-				username := ctx.Prompt("")
+			case 0:
+				username := ctx.Prompt("用户名")
 				if username == "" {
-					ctx.Write("\n已取消\n\n")
 					return
 				}
-				ctx.SetStatus("请输入密码", minitui.StatusWarning)
-				password := ctx.Prompt("")
-				ctx.Write("\n**密码登录成功**\n用户: " + username + "\n\n")
-				_ = password
-			case 1: // token
-				ctx.SetStatus("请输入 Token", minitui.StatusWarning)
-				token := ctx.Prompt("")
-				ctx.Write("\n**Token 认证成功**\nToken: " + strings.Repeat("*", len(token)) + "\n\n")
-			case 2: // guest
+				ctx.Prompt("密码")
+				ctx.Write("\n**密码登录成功** — 用户: " + username + "\n\n")
+			case 1:
+				ctx.Prompt("Token")
+				ctx.Write("\n**Token 认证成功**\n\n")
+			case 2:
 				ctx.Write("\n**访客模式** — 仅浏览权限\n\n")
+			default:
+				ctx.Write("\n**" + []string{"OAuth", "SSO", "LDAP", "API Key", "MFA", "扫码"}[method-3] + "** 认证完成\n\n")
 			}
 			ctx.SetStatus("就绪 | / 唤起命令", minitui.StatusSuccess)
 		},
 	})
-
-	// Extra commands to test dropdown scrolling.
-	for i := 1; i <= 10; i++ {
+	for i := 1; i <= 8; i++ {
 		name := fmt.Sprintf("cmd%d", i)
 		tui.RegisterCommand(minitui.SlashCommand{
 			Name: name, Description: fmt.Sprintf("测试命令 %d", i),
@@ -138,8 +124,9 @@ func main() {
 		})
 	}
 
-	tui.SetStatus("输入 / 唤起命令 | Enter 提交 | Shift+Enter/Ctrl+J 换行", minitui.StatusInfo)
+	tui.SetStatus("输入文字后 Enter 提交 | / 唤起命令 | Ctrl+P 弹窗", minitui.StatusInfo)
 
+	// ── main loop ────────────────────────────────────────────────
 	for {
 		input, err := tui.ReadLine()
 		if err != nil {
@@ -148,42 +135,62 @@ func main() {
 			return
 		}
 
-		tui.SetStatus("正在处理...", minitui.StatusWarning)
-		time.Sleep(200 * time.Millisecond)
+		tui.SetStatus("处理中...", minitui.StatusWarning)
+		time.Sleep(150 * time.Millisecond)
 
-		// 流式逐字输出
+		// Stream input back character by character.
 		for _, r := range input {
 			tui.WriteString(string(r))
-			time.Sleep(30 * time.Millisecond)
+			time.Sleep(25 * time.Millisecond)
 		}
 
-		tui.WriteString("\n\n---\n")
-		tui.WriteString("**以上是你的输入**\n")
-		tui.WriteString("\nMarkdown 演示：\n\n")
-		tui.WriteString("# 一级标题\n")
-		tui.WriteString("**粗体** 和 *斜体* `代码`\n")
-		tui.WriteString("\n表格示例：\n")
-		tui.WriteString("| 名称 | 数量 | 备注 |\n")
-		tui.WriteString("|------|------|------|\n")
-		tui.WriteString("| 苹果 | 10 | 新鲜 |\n")
-		tui.WriteString("| 香蕉 | 5 | - |\n")
-		tui.WriteString("| 橙子 | 20 | 进口 |\n")
-		tui.WriteString("\n你好世界 🌍 中文测试\n\n")
-		tui.WriteString("\n代码高亮示例：\n")
-		tui.WriteString("\n```go\n")
-		tui.WriteString("func main() {\n")
-		tui.WriteString("    // print greeting\n")
-		tui.WriteString("    name := \"world\"\n")
-		tui.WriteString("    fmt.Println(\"Hello, \" + name)\n")
-		tui.WriteString("    return\n")
+		// Markdown demo.
+		tui.WriteString("\n\n---\n**以上是你的输入**\n\n")
+		tui.WriteString("# 一级标题\n**粗体** *斜体* `行内代码`\n\n")
+		tui.WriteString("| 名称 | 数量 | 备注 |\n|------|------|------|\n| 苹果 | 10 | 新鲜 |\n| 香蕉 | 5 | - |\n| 橙子 | 20 | 进口 |\n\n")
+
+		// Code highlighting demo.
+		tui.WriteString("**代码高亮示例：**\n\n")
+		tui.WriteString("```go\n")
+		tui.WriteString("func greet(name string) string {\n")
+		tui.WriteString("    // return a greeting\n")
+		tui.WriteString("    return fmt.Sprintf(\"Hello, %s!\", name)\n")
 		tui.WriteString("}\n")
 		tui.WriteString("```\n\n")
 
-		tui.SetStatus("Enter 提交 | Shift+Enter/Ctrl+J 换行 | Ctrl+C 退出", minitui.StatusInfo)
+		tui.WriteString("```python\n")
+		tui.WriteString("def fibonacci(n: int) -> int:\n")
+		tui.WriteString("    # compute the nth fibonacci number\n")
+		tui.WriteString("    a, b = 0, 1\n")
+		tui.WriteString("    for _ in range(n):\n")
+		tui.WriteString("        a, b = b, a + b\n")
+		tui.WriteString("    return a\n")
+		tui.WriteString("```\n\n")
+
+		tui.WriteString("```sql\n")
+		tui.WriteString("-- active users from last week\n")
+		tui.WriteString("SELECT name, email\n")
+		tui.WriteString("FROM users\n")
+		tui.WriteString("WHERE active = true\n")
+		tui.WriteString("  AND last_login > '2026-01-01'\n")
+		tui.WriteString("ORDER BY name ASC;\n")
+		tui.WriteString("```\n\n")
+
+		tui.SetStatus("Enter 提交 | / 唤起命令 | Ctrl+P 快捷键 | Shift+Enter 换行", minitui.StatusInfo)
 	}
 }
 
-// Example custom renderer (uncomment RenderLine above to use).
-// func customRender(raw string) string {
-// 	return "\x1b[35m" + raw + "\x1b[0m" // all text in magenta
-// }
+func sampleCode(lang string) string {
+	switch lang {
+	case "python", "py":
+		return "def greet(name):\n    return f\"Hello, {name}\"\n"
+	case "js", "javascript", "ts", "typescript":
+		return "function greet(name: string): string {\n    return `Hello, ${name}`;\n}\n"
+	case "rust", "rs":
+		return "fn greet(name: &str) -> String {\n    format!(\"Hello, {name}!\")\n}\n"
+	case "sql":
+		return "SELECT * FROM users WHERE name = 'admin';\n"
+	default:
+		return "func greet(name string) string {\n    return fmt.Sprintf(\"Hello, %s!\", name)\n}\n"
+	}
+}
