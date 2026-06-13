@@ -152,11 +152,14 @@ type TUI struct {
 	codeLang    string // fence info string for current code block
 
 	// Input editor.
-	inLines     [][]rune
+	inLines     [][]rune // physical lines (one per Enter/Shift+Enter)
 	inCursorRow int
-	inCursorCol int
+	inCursorCol int // rune index
 	inHeight    int
-	inScrollRow int
+	inScrollRow int // visual scroll offset
+
+	// Visual wrapping cache.
+	visLines    []vLine // flat visual lines (wrapped from inLines)
 
 	// Status bar.
 	statusText  string
@@ -651,25 +654,25 @@ func (t *TUI) clearInput() {
 }
 
 func (t *TUI) recalcInputHeight() {
-	n := len(t.inLines)
+	t.buildVisualLines()
+	n := len(t.visLines)
 	if n < 1 { n = 1 }
 	if n > t.maxInputRows { n = t.maxInputRows }
 	prev := t.inHeight
 	if t.inHeight != n {
 		if n > prev {
-			// Push old output up to make room for the expanded input box.
 			t.scrollOutputUp(n - prev)
 		}
 		t.inHeight = n
-		// Re-render: output area shrank/grew, input box moved.
 		t.renderOutputScreen()
 		t.renderInputBox()
 	}
-	if t.inCursorRow < t.inScrollRow {
-		t.inScrollRow = t.inCursorRow
+	vr, _ := t.visCursor()
+	if vr < t.inScrollRow {
+		t.inScrollRow = vr
 	}
-	if t.inCursorRow >= t.inScrollRow+t.inHeight {
-		t.inScrollRow = t.inCursorRow - t.inHeight + 1
+	if vr >= t.inScrollRow+t.inHeight {
+		t.inScrollRow = vr - t.inHeight + 1
 	}
 	if t.inScrollRow < 0 {
 		t.inScrollRow = 0
@@ -718,11 +721,10 @@ func (t *TUI) handleResize() {
 // ── cursor ───────────────────────────────────────────────────────
 
 func (t *TUI) showCursor() {
-	if t.inCursorRow >= 0 && t.inCursorRow < len(t.inLines) {
-		cr := t.inContentStart() + (t.inCursorRow - t.inScrollRow)
-		cc := 1 + runeDisplayWidth(string(t.inLines[t.inCursorRow][:t.inCursorCol]))
-		fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[?25h", cr+1, cc)
-	}
+	vr, vc := t.visCursor()
+	cr := t.inContentStart() + (vr - t.inScrollRow)
+	cc := vc + 1
+	fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[?25h", cr+1, cc)
 }
 
 // ── slash commands ──────────────────────────────────────────────
@@ -745,5 +747,78 @@ func (t *TUI) UnregisterCommand(name string) {
 			return
 		}
 	}
+}
+
+// ── visual word wrapping ────────────────────────────────────────
+
+type vLine struct {
+	physRow int    // index into inLines
+	start   int    // rune offset in inLines[physRow]
+	text    string // display text for this visual line
+}
+
+// buildVisualLines wraps inLines into visual lines of width t.width.
+func (t *TUI) buildVisualLines() {
+	t.visLines = nil
+	maxW := t.width - 1 // 1 reserved for cursor at EOL
+	if maxW < 1 { maxW = 1 }
+	for ri, line := range t.inLines {
+		pos := 0
+		for pos < len(line) {
+			end := pos
+			w := 0
+			for end < len(line) {
+				rl := line[end]
+				rw := 4; if rl != '\t' { rw = runeWidth(rl) }
+				if w+rw > maxW { break }
+				w += rw
+				end++
+			}
+			if end == pos {
+				end = pos + 1 // force at least 1 char per visual line
+			}
+			t.visLines = append(t.visLines, vLine{
+				physRow: ri,
+				start:   pos,
+				text:    string(line[pos:end]),
+			})
+			pos = end
+		}
+	}
+	if t.visLines == nil {
+		t.visLines = append(t.visLines, vLine{text: ""})
+	}
+}
+
+// visCursor returns the visual row/col of the current cursor.
+func (t *TUI) visCursor() (visRow, visCol int) {
+	if len(t.visLines) == 0 {
+		return 0, 0
+	}
+	// Find which visual line contains inCursorRow and inCursorCol.
+	for i, vl := range t.visLines {
+		if vl.physRow != t.inCursorRow {
+			continue
+		}
+		line := t.inLines[t.inCursorRow]
+		// inCursorCol is a rune index; compute the visual column within this wrapped line.
+		preDisplay := displayWidth(string(line[vl.start:t.inCursorCol]))
+		if preDisplay <= t.width-1 || i == len(t.visLines)-1 || t.visLines[i+1].physRow != t.inCursorRow {
+			return i, preDisplay
+		}
+	}
+	// Cursor on the last character that starts a wrapped continuation line.
+	// Put it at column 0 of the next line.
+	last := 0
+	for i := len(t.visLines) - 1; i >= 0; i-- {
+		if t.visLines[i].physRow == t.inCursorRow {
+			last = i + 1
+			break
+		}
+	}
+	if last < len(t.visLines) {
+		return last, 0
+	}
+	return len(t.visLines) - 1, displayWidth(t.visLines[len(t.visLines)-1].text)
 }
 

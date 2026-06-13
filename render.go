@@ -13,12 +13,13 @@ func (t *TUI) renderInputBox() {
 	brd := bc + strings.Repeat("─", t.width) + ansiReset
 
 	t.writeRow(t.inTopBorder(), brd)
+
+	t.buildVisualLines()
 	vs := t.inContentStart()
 	for i := 0; i < t.inHeight; i++ {
 		idx := t.inScrollRow + i
-		if idx < len(t.inLines) {
-			s := string(t.inLines[idx])
-			s = pad(s, t.width) // pad handles CJK-safe truncation
+		if idx < len(t.visLines) {
+			s := pad(t.visLines[idx].text, t.width)
 			t.writeRow(vs+i, s)
 		} else {
 			t.writeRow(vs+i, "")
@@ -89,9 +90,9 @@ func (t *TUI) renderLine(raw string, tableBuf *[]string, forceDim bool) string {
 		*tableBuf = append(*tableBuf, raw)
 		return ""
 	}
-	// Blockquote: > text (pad to full width for solid background).
+	// Blockquote: > text (gray bg, clear-to-EOL before reset).
 	if isBlockquote(raw) {
-		return "\x1b[100m" + padTo(raw, t.width) + ansiReset
+		return "\x1b[100m" + padTo(raw, t.width) + "\x1b[K" + ansiReset
 	}
 	if forceDim {
 		return ansiDim + raw + ansiReset
@@ -229,7 +230,15 @@ func (t *TUI) renderInline(s string) string {
 // ── display width ────────────────────────────────────────────────
 
 func displayWidth(s string) int {
-	w := 0; for _, r := range s { w += runeWidth(r) }; return w
+	w := 0
+	for _, r := range s {
+		if r == '\t' {
+			w += 4
+		} else {
+			w += runeWidth(r)
+		}
+	}
+	return w
 }
 func runeDisplayWidth(s string) int { return displayWidth(s) }
 
@@ -255,11 +264,22 @@ func pad(s string, w int) string {
 		var b strings.Builder
 		cur := 0
 		for _, r := range s {
-			if cur+runeWidth(r) > w { break }
-			b.WriteRune(r); cur += runeWidth(r)
+			rw := runeWidth(r)
+			if r == '\t' {
+				rw = 4
+			}
+			if cur+rw > w {
+				break
+			}
+			b.WriteRune(r)
+			cur += rw
 		}
-		for cur < w { b.WriteByte(' '); cur++ }
+		for cur < w {
+			b.WriteByte(' ')
+			cur++
+		}
 		return b.String()
 	}
+	s = strings.ReplaceAll(s, "\t", "    ")
 	return s + strings.Repeat(" ", w-dw)
 }
