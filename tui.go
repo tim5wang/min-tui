@@ -780,7 +780,7 @@ func (t *TUI) buildVisualLines() {
 			t.visLines = append(t.visLines, vLine{
 				physRow: ri,
 				start:   pos,
-				text:    string(line[pos:end]),
+				text:    strings.ReplaceAll(string(line[pos:end]), "\t", "    "),
 			})
 			pos = end
 		}
