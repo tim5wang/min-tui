@@ -65,14 +65,21 @@ func (t *TUI) renderStatus() {
 
 // ── word wrap ───────────────────────────────────────────────────
 
-// stripAnsi removes ANSI escape sequences, returning plain text.
+// stripAnsi removes ANSI escape sequences (CSI + SGR), returning plain text.
 func stripAnsi(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
 			j := i + 2
-			for j < len(s) && s[j] != 'm' { j++ }
-			if j < len(s) { i = j; continue }
+			// Skip parameter (0x30-0x3F) and intermediate (0x20-0x2F) bytes.
+			for j < len(s) && ((s[j] >= 0x30 && s[j] <= 0x3F) || (s[j] >= 0x20 && s[j] <= 0x2F)) {
+				j++
+			}
+			// Final byte is 0x40-0x7E.  Fallback: any remaining byte ends the sequence.
+			if j < len(s) {
+				i = j
+				continue
+			}
 		}
 		b.WriteByte(s[i])
 	}
@@ -106,10 +113,16 @@ func wrapToWidth(ansi string, width int) []string {
 	var prefix strings.Builder
 	rest := ansi
 	for strings.HasPrefix(rest, "\x1b[") {
-		end := strings.IndexByte(rest, 'm')
-		if end < 0 { break }
-		prefix.WriteString(rest[:end+1])
-		rest = rest[end+1:]
+		end := len("\x1b[")
+		for end < len(rest) && ((rest[end] >= 0x30 && rest[end] <= 0x3F) || (rest[end] >= 0x20 && rest[end] <= 0x2F)) {
+			end++
+		}
+		if end >= len(rest) {
+			break
+		}
+		end++ // consume final byte
+		prefix.WriteString(rest[:end])
+		rest = rest[end:]
 	}
 
 	runes := []rune(plain)
@@ -162,7 +175,7 @@ func (t *TUI) renderLine(raw string, tableBuf *[]string, forceDim bool) string {
 	}
 	// Blockquote: > text (gray bg, clear-to-EOL before reset).
 	if isBlockquote(raw) {
-		return "\x1b[100m" + padTo(raw, t.width) + "\x1b[K" + ansiReset
+		return "\x1b[100m" + padTo(raw, t.width) + ansiReset
 	}
 	if forceDim {
 		return ansiDim + raw + ansiReset
@@ -310,7 +323,6 @@ func displayWidth(s string) int {
 	}
 	return w
 }
-func runeDisplayWidth(s string) int { return displayWidth(s) }
 
 func runeWidth(r rune) int {
 	if r == 0 { return 0 }
