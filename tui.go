@@ -656,17 +656,22 @@ func (t *TUI) clearInput() {
 func (t *TUI) recalcInputHeight() {
 	t.buildVisualLines()
 	n := len(t.visLines)
-	if n < 1 { n = 1 }
-	if n > t.maxInputRows { n = t.maxInputRows }
-	prev := t.inHeight
-	if t.inHeight != n {
-		if n > prev {
-			t.scrollOutputUp(n - prev)
-		}
-		t.inHeight = n
-		t.renderOutputScreen()
-		t.renderInputBox()
+	if n < 1 {
+		n = 1
 	}
+	if n > t.maxInputRows {
+		n = t.maxInputRows
+	}
+	prev := t.inHeight
+	if n > prev {
+		t.scrollOutputUp(n - prev)
+	}
+	t.inHeight = n
+
+	// Always re-render (lines may have changed without height change).
+	t.renderOutputScreen()
+	t.renderInputBox()
+
 	vr, _ := t.visCursor()
 	if vr < t.inScrollRow {
 		t.inScrollRow = vr
@@ -761,16 +766,27 @@ type vLine struct {
 func (t *TUI) buildVisualLines() {
 	t.visLines = nil
 	maxW := t.width - 1 // 1 reserved for cursor at EOL
-	if maxW < 1 { maxW = 1 }
+	if maxW < 1 {
+		maxW = 1
+	}
 	for ri, line := range t.inLines {
+		if len(line) == 0 {
+			t.visLines = append(t.visLines, vLine{physRow: ri, start: 0, text: ""})
+			continue
+		}
 		pos := 0
 		for pos < len(line) {
 			end := pos
 			w := 0
 			for end < len(line) {
 				rl := line[end]
-				rw := 4; if rl != '\t' { rw = runeWidth(rl) }
-				if w+rw > maxW { break }
+				rw := 4
+				if rl != '\t' {
+					rw = runeWidth(rl)
+				}
+				if w+rw > maxW {
+					break
+				}
 				w += rw
 				end++
 			}
