@@ -423,7 +423,11 @@ func (t *TUI) appendRendered(s string) {
 // Blank spacing lines are skipped so gaps don't push real content off-screen.
 func (t *TUI) commitOverflow() {
 	vis := t.outputRows()
-	if len(t.outAnsi) <= vis {
+	// Safety clamp: scroll region must not touch input/status area.
+	if vis > t.height-3 {
+		vis = t.height - 3
+	}
+	if vis <= 0 || len(t.outAnsi) <= vis {
 		return
 	}
 	// Count content (non-blank) lines to commit.
@@ -464,6 +468,10 @@ func (t *TUI) renderAfterWrite() {
 
 	// 2. Render visible output rows.
 	t.renderOutputScreen()
+
+	// 3. Re-render overlay (input box + status bar) to fix any corruption.
+	t.renderInputBox()
+	t.renderStatus()
 
 	// Re-render popups if active (scroll may have shifted positions).
 	if len(t.popups) > 0 {
@@ -670,6 +678,9 @@ func (t *TUI) recalcInputHeight() {
 
 func (t *TUI) scrollOutputUp(rows int) {
 	oldVis := t.outputRows() // output rows before height change
+	if oldVis > t.height-3 {
+		oldVis = t.height - 3
+	}
 
 	// Temporarily set scroll region to old output area.
 	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", oldVis)

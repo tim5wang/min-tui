@@ -8,14 +8,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/tim5wang/min-tui"
+	minitui "github.com/tim5wang/min-tui"
 )
 
 func main() {
 	tui, err := minitui.NewWithConfig(minitui.Config{
 		BorderColor:      "\x1b[36m", // cyan input borders
-		ShowHeadingMarks: true,        // show ## marks
-		Spacious:         true,        // blank lines between blocks
+		ShowHeadingMarks: true,       // show ## marks
+		Spacious:         true,       // blank lines between blocks
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -32,11 +32,11 @@ func main() {
 				{"", " Built-in features:", "", " • Markdown: headings **bold** *italic* `code`", " • Tables with aligned columns", " • Code blocks with syntax highlighting", " • Slash commands with /dropdown", " • Multi-turn interaction (Prompt/Select)", " • Popup windows (Tab focus)", "", " ←→ page 1/2"},
 			}
 			tui.PushPopup(minitui.Popup{
-				Title:       "Key Bindings",
-				Width:       44, Height: 13,
+				Title: "Key Bindings",
+				Width: 44, Height: 13,
 				BorderColor: "\x1b[35m",
 				BgColor:     "\x1b[47;30m",
-				Render: func(w, h int) []string { return pages[page] },
+				Render:      func(w, h int) []string { return pages[page] },
 				OnKey: func(k minitui.KeyEvent) minitui.PopupAction {
 					if k.Special == minitui.KeyLeft || k.Special == minitui.KeyRight {
 						page = (page + 1) % len(pages)
@@ -133,12 +133,12 @@ func main() {
 		input, err := tui.ReadLine()
 		if err != nil {
 			tui.WriteString("\n再见！\n")
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 			return
 		}
 
 		tui.SetStatus("处理中...", minitui.StatusWarning)
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 
 		// Stream input back character by character.
 		for _, r := range input {

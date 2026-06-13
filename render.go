@@ -18,10 +18,8 @@ func (t *TUI) renderInputBox() {
 		idx := t.inScrollRow + i
 		if idx < len(t.inLines) {
 			s := string(t.inLines[idx])
-			if len(s) > t.width {
-				s = s[:t.width]
-			}
-			t.writeRow(vs+i, pad(s, t.width))
+			s = pad(s, t.width) // pad handles CJK-safe truncation
+			t.writeRow(vs+i, s)
 		} else {
 			t.writeRow(vs+i, "")
 		}
