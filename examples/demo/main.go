@@ -180,6 +180,12 @@ func main() {
 		tui.WriteString("ORDER BY name ASC;\n")
 		tui.WriteString("```\n\n")
 
+		tui.WriteString("**超长折行测试：**\n\n")
+		tui.WriteString("```\n")
+		tui.WriteString("// Long code line wraps across multiple visual rows\n")
+		tui.WriteString("const msg = \"这是一行非常长的中英文混合语句应该自动折行到多行显示\" + \"还有更多更多更多的内容更多更多更多\";\n")
+		tui.WriteString("```\n\n")
+
 		tui.SetStatus("Enter 提交 | / 唤起命令 | Ctrl+P 快捷键 | Shift+Enter 换行", minitui.StatusInfo)
 	}
 }

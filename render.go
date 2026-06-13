@@ -63,7 +63,77 @@ func (t *TUI) renderStatus() {
 		s+text+ansiReset+strings.Repeat(" ", t.width-dw))
 }
 
-// ── row write (with cursor save/restore) ────────────────────────
+// ── word wrap ───────────────────────────────────────────────────
+
+// stripAnsi removes ANSI escape sequences, returning plain text.
+func stripAnsi(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && s[j] != 'm' { j++ }
+			if j < len(s) { i = j; continue }
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// takeRunesWidth returns the rune index `end` such that runes[start:end]
+// fits within maxWidth display cells. Also returns the actual width.
+func takeRunesWidth(rs []rune, start, maxWidth int) (end, w int) {
+	w = 0
+	for end = start; end < len(rs); end++ {
+		rl := rs[end]
+		rw := runeWidth(rl)
+		if rl == '\t' { rw = 4 }
+		if w+rw > maxWidth { break }
+		w += rw
+	}
+	return end, w
+}
+
+// wrapToWidth splits an ANSI-styled line into visual lines of width.
+// The first line keeps the full ANSI prefix; continuation lines get an
+// indent (2 spaces) and re-apply the initial ANSI style.
+func wrapToWidth(ansi string, width int) []string {
+	if width < 4 { return []string{ansi} }
+	plain := stripAnsi(ansi)
+	if displayWidth(plain) <= width {
+		return []string{ansi}
+	}
+	// Extract initial ANSI prefix (codes before first visible char).
+	var prefix strings.Builder
+	rest := ansi
+	for strings.HasPrefix(rest, "\x1b[") {
+		end := strings.IndexByte(rest, 'm')
+		if end < 0 { break }
+		prefix.WriteString(rest[:end+1])
+		rest = rest[end+1:]
+	}
+
+	runes := []rune(plain)
+	indent := "  "
+	iw := displayWidth(indent)
+	firstW := width
+	contW := width - iw
+	if contW < 1 { contW = 1 }
+
+	var out []string
+	pos := 0
+	end, _ := takeRunesWidth(runes, pos, firstW)
+	if end == pos { end = pos + 1 }
+	out = append(out, prefix.String()+string(runes[pos:end])+ansiReset)
+	pos = end
+
+	for pos < len(runes) {
+		end, _ = takeRunesWidth(runes, pos, contW)
+		if end == pos { end = pos + 1 }
+		out = append(out, indent+prefix.String()+string(runes[pos:end])+ansiReset)
+		pos = end
+	}
+	return out
+}
 
 func (t *TUI) writeRow(row int, s string) {
 	if row < 0 || row >= t.height {

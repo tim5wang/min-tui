@@ -409,16 +409,22 @@ func (t *TUI) flushTable() {
 	} else {
 		rendered := renderTable(t.tableBuf, t.width)
 		for _, line := range strings.Split(rendered, "\n") {
-			t.outAnsi = append(t.outAnsi, line)
+			for _, wl := range wrapToWidth(line, t.width) {
+				t.outAnsi = append(t.outAnsi, wl)
+			}
 		}
 	}
 	t.tableBuf = nil
 }
 
 // appendRendered adds a rendered line (may be empty for buffered table lines).
+// Long lines are word-wrapped so each entry fits within t.width columns.
 func (t *TUI) appendRendered(s string) {
-	if s != "" {
-		t.outAnsi = append(t.outAnsi, s)
+	if s == "" {
+		return
+	}
+	for _, line := range wrapToWidth(s, t.width) {
+		t.outAnsi = append(t.outAnsi, line)
 	}
 }
 
