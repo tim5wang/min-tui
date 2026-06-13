@@ -428,36 +428,30 @@ func (t *TUI) appendRendered(s string) {
 	}
 }
 
-// commitOverflow pushes non-blank content lines beyond vis into scrollback.
-// Blank spacing lines are skipped so gaps don't push real content off-screen.
+// commitOverflow pushes content lines beyond vis into scrollback.
 func (t *TUI) commitOverflow() {
 	vis := t.outputRows()
-	// Safety clamp: scroll region must not touch input/status area.
 	if vis > t.height-3 {
 		vis = t.height - 3
 	}
 	if vis <= 0 || len(t.outAnsi) <= vis {
 		return
 	}
-	// Count content (non-blank) lines to commit.
 	need := len(t.outAnsi) - vis
-	var lines []string
-	i := t.pushed
-	for i < len(t.outAnsi) && len(lines) < need {
-		if t.outAnsi[i] != "" {
-			lines = append(lines, t.outAnsi[i])
-		}
-		i++
-	}
-	if len(lines) == 0 {
-		t.pushed = i
+	if t.pushed >= len(t.outAnsi)-vis {
 		return
 	}
-	t.pushed = i
+	start := t.pushed
+	end := start + need
+	if end > len(t.outAnsi) {
+		end = len(t.outAnsi)
+	}
+	newLines := t.outAnsi[start:end]
+	t.pushed = end
 
 	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", vis)
 	fmt.Fprintf(os.Stdout, "\x1b[%d;1H", vis)
-	for _, line := range lines {
+	for _, line := range newLines {
 		fmt.Fprintf(os.Stdout, "%s\r\n", line)
 	}
 	fmt.Fprint(os.Stdout, "\x1b[r")
@@ -801,30 +795,22 @@ func (t *TUI) visCursor() (visRow, visCol int) {
 	if len(t.visLines) == 0 {
 		return 0, 0
 	}
-	// Find which visual line contains inCursorRow and inCursorCol.
 	for i, vl := range t.visLines {
 		if vl.physRow != t.inCursorRow {
 			continue
 		}
 		line := t.inLines[t.inCursorRow]
-		// inCursorCol is a rune index; compute the visual column within this wrapped line.
-		preDisplay := displayWidth(string(line[vl.start:t.inCursorCol]))
-		if preDisplay <= t.width-1 || i == len(t.visLines)-1 || t.visLines[i+1].physRow != t.inCursorRow {
-			return i, preDisplay
+		w := displayWidth(string(line[vl.start:t.inCursorCol]))
+		if w < t.width || i == len(t.visLines)-1 || t.visLines[i+1].physRow != t.inCursorRow {
+			return i, w
 		}
 	}
-	// Cursor on the last character that starts a wrapped continuation line.
-	// Put it at column 0 of the next line.
-	last := 0
+	// Cursor at very end of wrapped physical line → place at last visual line end.
 	for i := len(t.visLines) - 1; i >= 0; i-- {
 		if t.visLines[i].physRow == t.inCursorRow {
-			last = i + 1
-			break
+			return i, displayWidth(t.visLines[i].text)
 		}
 	}
-	if last < len(t.visLines) {
-		return last, 0
-	}
-	return len(t.visLines) - 1, displayWidth(t.visLines[len(t.visLines)-1].text)
+	return len(t.visLines) - 1, 0
 }
 
