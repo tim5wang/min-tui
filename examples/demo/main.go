@@ -12,10 +12,45 @@ import (
 )
 
 func main() {
+	// ── application-owned history (min-tui does not store anything) ─
+	history := []string{
+		"hello world",
+		"explain context overflow",
+		"/login",
+		"select a file from the list",
+	}
+	hIdx := len(history) // past the end = "no recall yet"
+
+	recall := func(direction int) string {
+		// -1 = ↑ (older), +1 = ↓ (newer)
+		if len(history) == 0 {
+			return ""
+		}
+		if hIdx == len(history) {
+			if direction > 0 {
+				return "" // already at the freshest point
+			}
+			hIdx = len(history) - 1
+		} else {
+			hIdx += direction
+			if hIdx < 0 {
+				hIdx = 0
+			}
+			if hIdx > len(history) {
+				hIdx = len(history)
+			}
+			if hIdx == len(history) {
+				return "" // one past the end = blank
+			}
+		}
+		return history[hIdx]
+	}
+
 	tui, err := minitui.NewWithConfig(minitui.Config{
 		BorderColor:      "\x1b[36m", // cyan input borders
 		ShowHeadingMarks: true,       // show ## marks
 		Spacious:         true,       // blank lines between blocks
+		HistoryFn:        recall,     // ↑/↓ on empty input recalls from `history`
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -140,6 +175,12 @@ func main() {
 		tui.SetStatus("处理中...", minitui.StatusWarning)
 		time.Sleep(10 * time.Millisecond)
 
+		// Push submitted line into history (skip empty submissions).
+		if input != "" {
+			history = append(history, input)
+		}
+		hIdx = len(history)
+
 		// Stream input back character by character.
 		for _, r := range input {
 			tui.WriteString(string(r))
@@ -186,7 +227,7 @@ func main() {
 		tui.WriteString("const msg = \"这是一行非常长的中英文混合语句应该自动折行到多行显示\" + \"还有更多更多更多的内容更多更多更多\";\n")
 		tui.WriteString("```\n\n")
 
-		tui.SetStatus("Enter 提交 | / 唤起命令 | Ctrl+P 快捷键 | Shift+Enter 换行", minitui.StatusInfo)
+		tui.SetStatus("Enter 提交 | / 唤起命令 | Ctrl+P 快捷键 | Shift+Enter 换行 | ↑/↓ 历史", minitui.StatusInfo)
 	}
 }
 

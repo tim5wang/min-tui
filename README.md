@@ -22,7 +22,7 @@ go get github.com/tim5wang/min-tui
 - **Popup windows** — overlay dialogs with focus switching (Tab), interactive `OnKey`, custom colors
 - **Markdown** — headings, **bold**, *italic*, `inline code`, fenced code blocks (with syntax highlighting), aligned tables, blockquotes
 - **Status bar** — 5 styles (default / info / warning / error / success)
-- **Configurable** — border color, custom markdown renderer, event channel, heading marks, spacious mode
+- **Configurable** — border color, custom markdown renderer, event channel, heading marks, spacious mode, app-owned input history
 - **Concurrency-safe** — `Write()` from any goroutine while `ReadLine()` blocks
 
 ## Quick Start
@@ -56,6 +56,7 @@ tui, _ := minitui.NewWithConfig(minitui.Config{
     MaxInputRows:     12,                // default 8
     ShowHeadingMarks: true,              // keep `## Title` visible (default: false)
     Spacious:         true,              // blank lines between blocks (default: false)
+    HistoryFn:        myHistory,         // ↑/↓ on empty input (see below)
 })
 
 tui.WriteString("output\n")              // streaming output
@@ -74,6 +75,46 @@ defer tui.Close()                        // restore terminal
 | `MaxInputRows` | `8` | Maximum visible rows in the input box |
 | `ShowHeadingMarks` | `false` | Keep `#` / `##` marks visible on headings |
 | `Spacious` | `false` | Insert blank lines before/after headings, code blocks, tables |
+| `HistoryFn` | `nil` | Called on `↑`/`↓` when input is empty — see [Input History](#input-history) |
+
+## Input History
+
+`Config.HistoryFn` lets the application implement command history without
+min-tui owning any state. The callback fires only when the user presses
+`↑` or `↓` while the input box is a single empty line — multi-line input
+keeps the normal cursor-move behavior.
+
+```go
+history := []string{"help", "echo", "/login"}
+idx := len(history) // past the end
+
+tui, _ := minitui.NewWithConfig(minitui.Config{
+    HistoryFn: func(direction int) string {
+        // direction: -1 = ↑ (older), +1 = ↓ (newer)
+        if len(history) == 0 { return "" }
+        if idx == len(history) && direction > 0 { return "" }
+        if idx == len(history) { idx = len(history) - 1 } else { idx += direction }
+        if idx < 0 { idx = 0 }
+        if idx > len(history) { idx = len(history); return "" }
+        return history[idx]
+    },
+})
+
+// In your ReadLine loop, append on submit:
+input, _ := tui.ReadLine()
+if input != "" { history = append(history, input); idx = len(history) }
+```
+
+**Contract:**
+
+- The callback runs on the TUI input goroutine. It must not call back into
+  the TUI (no `Write`, `SetStatus`, `ReadLine` from inside the callback).
+- Return `""` to leave the input unchanged (e.g. at the boundary of the
+  history list). The key is consumed in this case so the cursor does not
+  also try to move on a single-line input.
+- The application owns the storage, the cursor, the de-duplication, the
+  persistence across sessions — min-tui only fires the callback and
+  places the returned text into the input box.
 
 ## Slash Commands
 
@@ -178,7 +219,7 @@ tui.SetGlobalKeyHandler(func(k minitui.KeyEvent) bool {
 | `Ctrl+C` | Interrupt (returns error from `ReadLine`) |
 | `Esc` | Cancel slash / close popup |
 | `Tab` | Insert spaces (normal) / toggle popup focus (popup open) |
-| `↑` `↓` | Navigate dropdowns |
+| `↑` `↓` | Navigate dropdowns; on empty input, fires `Config.HistoryFn` (see [Input History](#input-history)) |
 | `←` `→` | Move cursor |
 | `Home` `End` | Jump start/end of line |
 | `Ctrl+A` `E` `K` `U` `W` | Emacs shortcuts |

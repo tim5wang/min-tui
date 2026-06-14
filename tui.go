@@ -128,6 +128,17 @@ type Config struct {
 	// Spacious: when true, blank lines are inserted before/after headings,
 	// code blocks, and tables for readability. Default: false (compact).
 	Spacious bool
+
+	// HistoryFn, if non-nil, is called when the user presses ↑ or ↓ while
+	// the input box is empty (a single empty line). The callback receives a
+	// direction: -1 for ↑ (older), +1 for ↓ (newer). It should return the
+	// text to fill into the input box, or "" to leave the input unchanged.
+	//
+	// min-tui does not store any history — the application owns the
+	// history list, the cursor, and the "no more entries" semantics.
+	// The callback is invoked under the TUI's input lock, so it must not
+	// call back into the TUI.
+	HistoryFn func(direction int) string
 }
 
 // TUI is the main text user interface.
@@ -172,6 +183,7 @@ type TUI struct {
 	maxInputRows int
 	showMarks    bool // heading marks visible
 	spacious     bool // blank lines between blocks
+	historyFn    func(direction int) string
 
 	// Slash commands.
 	slashCmds      []SlashCommand
@@ -244,6 +256,7 @@ func NewWithConfig(cfg Config) (*TUI, error) {
 		maxInputRows: maxRows,
 		showMarks:    cfg.ShowHeadingMarks,
 		spacious:     cfg.Spacious,
+		historyFn:    cfg.HistoryFn,
 	}
 
 	fmt.Fprint(os.Stdout, "\x1b[?2004h\x1b[>1u\x1b[>4;2m")
@@ -651,6 +664,42 @@ func (t *TUI) clearInput() {
 	t.inScrollRow = 0
 	t.inHeight = 1
 	t.renderOutputScreen()
+}
+
+// setInputText replaces the input box contents with the given text.
+// Used by HistoryFn to inject a recalled entry. Cursor is placed at end
+// of the last line so the user can immediately edit or submit.
+func (t *TUI) setInputText(s string) {
+	var lines [][]rune
+	for _, l := range strings.Split(s, "\n") {
+		lines = append(lines, []rune(l))
+	}
+	if len(lines) == 0 {
+		lines = [][]rune{{}}
+	}
+	t.inLines = lines
+	t.inCursorRow = len(lines) - 1
+	t.inCursorCol = len(lines[len(lines)-1])
+	t.inScrollRow = 0
+	t.buildVisualLines()
+}
+
+// tryHistory fires Config.HistoryFn when the input is a single empty line.
+// Returns true if the callback was invoked, signalling that the key has
+// been consumed and the default cursor-move (which is a no-op on a
+// single empty line anyway) should be skipped.
+func (t *TUI) tryHistory(direction int) bool {
+	if t.historyFn == nil {
+		return false
+	}
+	if len(t.inLines) != 1 || len(t.inLines[0]) != 0 {
+		return false
+	}
+	v := t.historyFn(direction)
+	if v != "" {
+		t.setInputText(v)
+	}
+	return true
 }
 
 func (t *TUI) recalcInputHeight() {

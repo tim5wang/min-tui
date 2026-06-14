@@ -286,8 +286,10 @@ func (t *TUI) processKey(k keyEvent) {
 	case k.special == keyRight, k.ctrl && k.r == 'f':
 		t.moveCursor(1, 0)
 	case k.special == keyUp, k.ctrl && k.r == 'p':
+		if t.tryHistory(-1) { break }
 		t.moveCursor(0, -1)
 	case k.special == keyDown, k.ctrl && k.r == 'n':
+		if t.tryHistory(+1) { break }
 		t.moveCursor(0, 1)
 	case k.special == keyHome, k.ctrl && k.r == 'a':
 		t.inCursorCol = 0
