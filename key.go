@@ -308,6 +308,12 @@ func (t *TUI) processKey(k keyEvent) {
 		t.insertRune(k.r)
 		t.checkSlashTrigger()
 	}
+	// If we were paging through history and the input text no longer
+	// matches what HistoryFn returned last, the user has started editing
+	// the recalled line — exit recall mode and drop the saved draft.
+	if t.recalling && t.currentInputText() != t.lastRecall {
+		t.exitHistory()
+	}
 	t.recalcInputHeight()
 }
 

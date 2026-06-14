@@ -80,23 +80,29 @@ defer tui.Close()                        // restore terminal
 ## Input History
 
 `Config.HistoryFn` lets the application implement command history without
-min-tui owning any state. The callback fires only when the user presses
-`↑` or `↓` while the input box is a single empty line — multi-line input
-keeps the normal cursor-move behavior.
+min-tui owning any state. The callback fires on every `↑` or `↓` press in
+the input box. The application owns the history list, the cursor, and the
+boundary semantics; min-tui only fires the callback and places the
+returned text into the input.
 
 ```go
 history := []string{"help", "echo", "/login"}
 idx := len(history) // past the end
 
 tui, _ := minitui.NewWithConfig(minitui.Config{
-    HistoryFn: func(direction int) string {
+    HistoryFn: func(direction int, current string) string {
         // direction: -1 = ↑ (older), +1 = ↓ (newer)
-        if len(history) == 0 { return "" }
-        if idx == len(history) && direction > 0 { return "" }
-        if idx == len(history) { idx = len(history) - 1 } else { idx += direction }
-        if idx < 0 { idx = 0 }
-        if idx > len(history) { idx = len(history); return "" }
-        return history[idx]
+        // current:   the input-box text right now
+        // Return the next entry, or `current` unchanged to signal
+        // "no more in this direction" — min-tui restores the user's
+        // original draft automatically.
+        if direction < 0 {
+            if idx > 0 { idx--; return history[idx] }
+            return current // no older — stay
+        }
+        if idx+1 < len(history) { idx++; return history[idx] }
+        idx = len(history)
+        return current // one past end — min-tui restores draft
     },
 })
 
@@ -107,14 +113,20 @@ if input != "" { history = append(history, input); idx = len(history) }
 
 **Contract:**
 
-- The callback runs on the TUI input goroutine. It must not call back into
-  the TUI (no `Write`, `SetStatus`, `ReadLine` from inside the callback).
-- Return `""` to leave the input unchanged (e.g. at the boundary of the
-  history list). The key is consumed in this case so the cursor does not
-  also try to move on a single-line input.
-- The application owns the storage, the cursor, the de-duplication, the
-  persistence across sessions — min-tui only fires the callback and
-  places the returned text into the input box.
+- `direction` is `-1` for `↑` (older) and `+1` for `↓` (newer).
+- `current` is the input-box text at the moment of the keypress. Return
+  `current` unchanged to signal "no more entries in this direction".
+- The callback runs on the TUI input goroutine. It must not call back
+  into the TUI (no `Write`, `SetStatus`, `ReadLine` from inside it).
+- min-tui saves the user's draft on the first ↑/↓ of a session. The
+  draft is restored automatically when the callback returns `current`
+  unchanged while recall is active.
+- Editing the recalled text (typing, backspace, paste, etc.) exits
+  recall mode and drops the draft.
+- Submitting (Enter) clears recall state.
+
+The application owns the storage, the cursor index, de-duplication, and
+persistence across sessions — min-tui only manages the draft.
 
 ## Slash Commands
 

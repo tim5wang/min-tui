@@ -129,16 +129,26 @@ type Config struct {
 	// code blocks, and tables for readability. Default: false (compact).
 	Spacious bool
 
-	// HistoryFn, if non-nil, is called when the user presses ↑ or ↓ while
-	// the input box is empty (a single empty line). The callback receives a
-	// direction: -1 for ↑ (older), +1 for ↓ (newer). It should return the
-	// text to fill into the input box, or "" to leave the input unchanged.
+	// HistoryFn, if non-nil, is called when the user presses ↑ or ↓. The
+	// callback receives a direction (-1 = ↑ older, +1 = ↓ newer) and the
+	// current input-box text. It should return the text to fill into the
+	// input box, or current unchanged to signal "no more entries in this
+	// direction" — in that case, if the user was navigating through
+	// recalled history, the original draft is restored automatically.
 	//
-	// min-tui does not store any history — the application owns the
-	// history list, the cursor, and the "no more entries" semantics.
-	// The callback is invoked under the TUI's input lock, so it must not
-	// call back into the TUI.
-	HistoryFn func(direction int) string
+	// min-tui does not store any history. The application owns the
+	// history list, the cursor index, and de-duplication. The callback
+	// runs under the TUI input lock; it must not call back into the TUI.
+	//
+	// Behavior:
+	//   - First ↑/↓: the current input is saved as a draft.
+	//   - Subsequent ↑/↓: the callback is invoked with the current text.
+	//   - Editing the recalled text (typing, backspace, paste, etc.) exits
+	//     history-recall mode and the draft is discarded.
+	//   - Submitting (Enter) clears recall state.
+	//   - Returning current unchanged at the boundary of the history list
+	//     restores the original draft.
+	HistoryFn func(direction int, current string) string
 }
 
 // TUI is the main text user interface.
@@ -183,7 +193,14 @@ type TUI struct {
 	maxInputRows int
 	showMarks    bool // heading marks visible
 	spacious     bool // blank lines between blocks
-	historyFn    func(direction int) string
+	historyFn    func(direction int, current string) string
+
+	// History-recall internal state. min-tui does not store the history
+	// list — only the draft the user was editing before recall, and a
+	// flag indicating whether we are currently mid-recall.
+	recalling   bool   // true while user is paging through HistoryFn results
+	pendingEdit string // text in the input box when recall was first entered
+	lastRecall  string // text most recently placed by HistoryFn (for boundary detection)
 
 	// Slash commands.
 	slashCmds      []SlashCommand
@@ -663,6 +680,7 @@ func (t *TUI) clearInput() {
 	t.inCursorCol = 0
 	t.inScrollRow = 0
 	t.inHeight = 1
+	t.exitHistory()
 	t.renderOutputScreen()
 }
 
@@ -684,22 +702,65 @@ func (t *TUI) setInputText(s string) {
 	t.buildVisualLines()
 }
 
-// tryHistory fires Config.HistoryFn when the input is a single empty line.
-// Returns true if the callback was invoked, signalling that the key has
-// been consumed and the default cursor-move (which is a no-op on a
-// single empty line anyway) should be skipped.
+// currentInputText returns the joined text in the input box.
+func (t *TUI) currentInputText() string {
+	if len(t.inLines) == 0 {
+		return ""
+	}
+	parts := make([]string, len(t.inLines))
+	for i, l := range t.inLines {
+		parts[i] = string(l)
+	}
+	return strings.Join(parts, "\n")
+}
+
+// tryHistory handles ↑/↓. Returns true if the key was consumed.
+//
+// State machine:
+//   - recalling = false (first ↑/↓ of a session):
+//       save current text as pendingEdit, ask callback, fill result.
+//   - recalling = true (subsequent ↑/↓):
+//       ask callback with current text. If callback returns the same text
+//       (boundary), restore pendingEdit and exit recall mode. Otherwise
+//       fill the returned text.
+//   - Any non-recall edit (typing, backspace, paste) calls exitHistory()
+//     to clear recall state and discard the saved draft.
 func (t *TUI) tryHistory(direction int) bool {
 	if t.historyFn == nil {
 		return false
 	}
-	if len(t.inLines) != 1 || len(t.inLines[0]) != 0 {
-		return false
+	// Slash / select modes are handled by their own key dispatchers, so
+	// reaching here means we are in normal input mode.
+	current := t.currentInputText()
+	if !t.recalling {
+		t.pendingEdit = current
 	}
-	v := t.historyFn(direction)
-	if v != "" {
-		t.setInputText(v)
+	v := t.historyFn(direction, current)
+	if v == current {
+		// Boundary: callback signalled "no change". If we were paging
+		// through history, restore the original draft and exit recall.
+		if t.recalling {
+			t.setInputText(t.pendingEdit)
+			t.exitHistory()
+		}
+		// Otherwise: user pressed ↑/↓ in a non-empty input where
+		// the app has no history to recall; leave the input alone but
+		// still consume the key (it was a deliberate history attempt,
+		// not a cursor move).
+		return true
 	}
+	t.recalling = true
+	t.lastRecall = v
+	t.setInputText(v)
 	return true
+}
+
+// exitHistory clears recall state. Called when the user edits the
+// recalled text or when the input is submitted.
+func (t *TUI) exitHistory() {
+	t.recalling = false
+	t.pendingEdit = ""
+	t.lastRecall = ""
 }
 
 func (t *TUI) recalcInputHeight() {

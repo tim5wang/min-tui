@@ -21,14 +21,16 @@ func main() {
 	}
 	hIdx := len(history) // past the end = "no recall yet"
 
-	recall := func(direction int) string {
+	recall := func(direction int, current string) string {
 		// -1 = ↑ (older), +1 = ↓ (newer)
+		// Returning `current` unchanged signals "boundary" — min-tui
+		// will then restore the user's original draft automatically.
 		if len(history) == 0 {
-			return ""
+			return current
 		}
 		if hIdx == len(history) {
 			if direction > 0 {
-				return "" // already at the freshest point
+				return current // already at the freshest point
 			}
 			hIdx = len(history) - 1
 		} else {
@@ -40,7 +42,7 @@ func main() {
 				hIdx = len(history)
 			}
 			if hIdx == len(history) {
-				return "" // one past the end = blank
+				return current // one past the end = restore draft
 			}
 		}
 		return history[hIdx]
