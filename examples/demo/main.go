@@ -117,6 +117,27 @@ func main() {
 		},
 	})
 	tui.RegisterCommand(minitui.SlashCommand{
+		Name: "diff", Description: "展示 diff 视图 — 行号 + 着色 + 代码高亮",
+		Handler: func(ctx *minitui.CommandContext) {
+			ctx.Write("\n**Go diff（带行号 + 语法高亮）：**\n\n")
+			ctx.Write(minitui.RenderDiff(diffDemo, true))
+			ctx.Write("\n**Python diff（带行号）：**\n\n")
+			ctx.Write(minitui.RenderDiff(`--- a/app.py
++++ b/app.py
+@@ -1,5 +1,6 @@
+-def fibonacci(n):
+-    a, b = 0, 1
++def fibonacci(n: int) -> int:
++    # compute nth fibonacci number
++    a, b = 0, 1
+     for _ in range(n):
+         a, b = b, a + b
+     return a
+`, true))
+			ctx.SetStatus("就绪 | / 唤起命令", minitui.StatusSuccess)
+		},
+	})
+	tui.RegisterCommand(minitui.SlashCommand{
 		Name: "login", Description: "多轮交互 — 二级菜单选择",
 		Handler: func(ctx *minitui.CommandContext) {
 			method := ctx.Select("选择登录方式", []minitui.SelectOption{
@@ -223,6 +244,12 @@ func main() {
 		tui.WriteString("ORDER BY name ASC;\n")
 		tui.WriteString("```\n\n")
 
+		// Diff view demo (colored prefixes + syntax highlighting).
+		tui.WriteString("**Diff 视图 — 前缀着色 + 代码高亮：**\n\n")
+		tui.WriteDiff(diffDemo, true)
+		tui.WriteString("\n")
+
+		// Long line wrapping.
 		tui.WriteString("**超长折行测试：**\n\n")
 		tui.WriteString("```\n")
 		tui.WriteString("// Long code line wraps across multiple visual rows\n")
@@ -232,6 +259,22 @@ func main() {
 		tui.SetStatus("Enter 提交 | / 唤起命令 | Ctrl+P 快捷键 | Shift+Enter 换行 | ↑/↓ 历史", minitui.StatusInfo)
 	}
 }
+
+const diffDemo = `--- a/main.go
++++ b/main.go
+@@ -1,6 +1,7 @@
+ package main
+ 
+ import "fmt"
++import "os"
+ 
+-func greet() {
+-    fmt.Println("hello")
++func greet(name string) {
++    fmt.Printf("hello, %s\n", name)
++    os.Exit(0)
+ }
+`
 
 func sampleCode(lang string) string {
 	switch lang {
