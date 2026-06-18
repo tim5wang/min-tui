@@ -247,9 +247,9 @@ tui.SetGlobalKeyHandler(func(k minitui.KeyEvent) bool {
 | `**text**` | **Bold** |
 | `*text*` | *Italic* |
 | `` `code` `` | Dim inline code |
-| ` ``` ` fenced block | Dim block; with language info, syntax-highlighted |
+| ` ``` ` fenced block | Full-width dark background (256-color 235); with language info, syntax-highlighted |
 | `\| col \| col \|` | Aligned table with header separator |
-| `> quote` | Gray background blockquote |
+| `> quote` | Gray background blockquote (no `>` prefix visible) |
 
 ### Fenced Code Highlighting
 
@@ -264,6 +264,28 @@ func add(a, b int) int { return a + b }
 Supported languages (zero-dep tokenizer): **go**, **python** (py), **javascript** (js), **typescript** (ts), **rust** (rs), **bash** (sh), **sql**.
 
 Each language tokenizes: keywords (yellow), types (cyan), strings (green), comments (gray), numbers (purple).
+
+### Diff View
+
+`WriteDiff(diffStr, showLineNum)` renders a unified diff with:
+- **Line-number gutter**: distinct background (238)
+- **Context lines**: code-area background (236) full-width
+- **Add lines**: green background (22) full-width
+- **Delete lines**: red background (52) full-width
+- **Headers / hunks / meta**: no background fill
+
+Both context and +/- backgrounds extend the full terminal width for a clean block appearance.
+
+```go
+tui.WriteDiff(`--- a/main.go
++++ b/main.go
+@@ -1,4 +1,5 @@
+ package main
++import "os"
+-func greet() {
++func greet(name string) {
+`, true)
+```
 
 ## Events
 

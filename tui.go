@@ -41,6 +41,10 @@ const (
 	ansiBold   = "\x1b[1m"
 	ansiDim    = "\x1b[2m"
 	ansiItalic = "\x1b[3m"
+
+	// 256-color dark backgrounds for visual block distinction.
+	ansiCodeBg = "\x1b[48;5;235m" // dark charcoal for code blocks
+	ansiDiffBg = "\x1b[48;5;236m" // slightly lighter for diff blocks
 )
 
 // EventType describes what kind of event occurred.
@@ -389,16 +393,19 @@ func (t *TUI) emitLine(raw string) {
 			t.codeLang = ""
 			t.pendingGap = t.spacious
 		}
+		// Fence lines: dim only, no background fill.
 		t.appendRendered(t.renderLine(raw, nil, true))
 		return
 	}
 
 	if t.inCodeBlock {
+		var content string
 		if t.codeLang != "" {
-			t.appendRendered(highlightCodeBlock(raw, t.codeLang))
+			content = highlightCodeBlock(raw, t.codeLang)
 		} else {
-			t.appendRendered(t.renderLine(raw, nil, true))
+			content = t.renderLine(raw, nil, true)
 		}
+		t.appendCodeLine(content)
 		return
 	}
 
@@ -455,6 +462,14 @@ func (t *TUI) flushTable() {
 func (t *TUI) appendRendered(s string) {
 	for _, line := range wrapToWidth(s, t.width) {
 		t.outAnsi = append(t.outAnsi, line)
+	}
+}
+
+// appendCodeLine adds an ANSI-styled code line with full-width code background.
+// Each visual line (after wrapping) is padded to terminal width.
+func (t *TUI) appendCodeLine(content string) {
+	for _, line := range wrapToWidth(content, t.width) {
+		t.outAnsi = append(t.outAnsi, bgPadLine(line, ansiCodeBg, t.width))
 	}
 }
 

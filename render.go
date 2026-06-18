@@ -372,3 +372,14 @@ func pad(s string, w int) string {
 	s = strings.ReplaceAll(s, "\t", "    ")
 	return s + strings.Repeat(" ", w-dw)
 }
+
+// bgPadLine wraps an ANSI-styled visual line with a full-width background.
+// The given bg is prepended; trailing space (if any) extends the bg to width.
+func bgPadLine(ansiLine string, bg string, width int) string {
+	dw := displayWidth(stripAnsi(ansiLine))
+	padding := ""
+	if dw < width {
+		padding = strings.Repeat(" ", width-dw)
+	}
+	return bg + ansiLine + padding + ansiReset
+}

@@ -27,12 +27,55 @@ func RenderDiff(diff string, showLineNum ...bool) string {
 }
 
 // WriteDiff renders and writes a colored unified diff.
+// Code lines (context / + / −) get full-width backgrounds:
+//   • context → code-area bg 236 (from lineNumFmt)
+//   • added   → green bg 22  fills entire line
+//   • deleted → red bg 52    fills entire line
+// Headers, hunks, and meta lines do not get background fill.
 // Pass true to show line numbers.
 func (t *TUI) WriteDiff(diff string, showLineNum ...bool) {
-	t.WriteString(RenderDiff(diff, showLineNum...))
+	ln := len(showLineNum) > 0 && showLineNum[0]
+	rendered := RenderDiff(diff, ln)
+	renderedLines := strings.Split(rendered, "\n")
+	origLines := strings.Split(diff, "\n")
+
+	var b strings.Builder
+	ri := 0
+	for _, orig := range origLines {
+		if ri >= len(renderedLines) {
+			break
+		}
+		rline := renderedLines[ri]
+		ri++
+
+		if rline == "" {
+			b.WriteByte('\n')
+			continue
+		}
+
+		b.WriteString(rline)
+
+		// Only code lines (context / + / −) get padded to full width.
+		if isDiffCodeLine(orig) {
+			dw := displayWidth(stripAnsi(rline))
+			if dw < t.width {
+				// The background (green/red for +/−, 236 for context)
+				// is still active at this point — just emit spaces.
+				b.WriteString(strings.Repeat(" ", t.width-dw))
+				b.WriteString(ansiReset)
+			}
+		}
+		b.WriteByte('\n')
+	}
+	t.WriteString(b.String())
 }
 
-const lineNumFmt = "\x1b[90m%4d \x1b[0m" // dim, 4-wide right-aligned
+// isDiffCodeLine returns true for context (' '), added ('+'), or deleted ('-') lines.
+func isDiffCodeLine(s string) bool {
+	return len(s) > 0 && (s[0] == ' ' || s[0] == '+' || s[0] == '-')
+}
+
+const lineNumFmt = "\x1b[48;5;238;90m%4d \x1b[39;48;5;236m" // gutter bg 238, then code bg 236
 
 func renderDiff(diff string, s DiffStyle, showNum bool) string {
 	if diff == "" {
@@ -53,11 +96,12 @@ func renderDiff(diff string, s DiffStyle, showNum bool) string {
 			b.WriteString(s.Hunk + line + ansiReset)
 		case strings.HasPrefix(line, "+"):
 			bufNum(&b, showNum, newL)
-			b.WriteString(s.Add + "+" + highlightDiffCode(line[1:], curLang) + ansiReset)
+			// \x1b[39m resets fg only — green bg persists for full-width fill.
+			b.WriteString(s.Add + "+" + highlightDiffCode(line[1:], curLang) + "\x1b[39m")
 			newL++
 		case strings.HasPrefix(line, "-"):
 			bufNum(&b, showNum, oldL)
-			b.WriteString(s.Del + "-" + highlightDiffCode(line[1:], curLang) + ansiReset)
+			b.WriteString(s.Del + "-" + highlightDiffCode(line[1:], curLang) + "\x1b[39m")
 			oldL++
 		case isMeta(line):
 			b.WriteString(s.Meta + line + ansiReset)
