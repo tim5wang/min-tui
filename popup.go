@@ -208,14 +208,10 @@ func (t *TUI) renderPopup(p *popupState) {
 // ── internal: popup key dispatch ─────────────────────────────────
 
 // handlePopupKey returns true if the key was consumed.
+// Called from ReadLine while t.mu is held; releases the lock before
+// invoking OnKey so the callback can safely call PushPopup / WriteString.
 func (t *TUI) handlePopupKey(k keyEvent) bool {
-	// Esc always closes the top popup.
-	if k.r == 27 {
-		t.popPopup()
-		t.renderAfterPopupClose()
-		return true
-	}
-	// Ctrl+C always passes through.
+	// Ctrl+C always passes through (let caller handle interrupt).
 	if k.ctrl && (k.r == 'c' || k.r == 'C') {
 		return false
 	}
@@ -237,41 +233,82 @@ func (t *TUI) handlePopupKey(k keyEvent) bool {
 		return false
 	}
 
-	// Focused popup: route keys to OnKey.
-	if top.OnKey == nil {
-		return false
+	// Focused popup: route keys to OnKey (including ESC).
+	if top.OnKey != nil {
+		onKey := top.OnKey
+		key := keyEventFromInternal(k)
+		t.mu.Unlock()
+		action := onKey(key)
+		t.mu.Lock()
+
+		// Popup stack may have changed while unlocked — re-read.
+		if len(t.popups) == 0 {
+			t.renderAfterPopupClose()
+			return true
+		}
+		top = t.popups[len(t.popups)-1]
+
+		switch action {
+		case PopupClose:
+			t.popPopup()
+			t.renderAfterPopupClose()
+			return true
+		case PopupUpdate:
+			t.renderPopup(top)
+			t.renderInputBox()
+			t.renderStatus()
+			return true
+		default:
+			// PopupPassthrough — fall through to default handling.
+		}
 	}
-	switch top.OnKey(keyEventFromInternal(k)) {
-	case PopupClose:
+
+	// Default: ESC closes the top popup; any other key passes through.
+	if k.r == 27 {
 		t.popPopup()
 		t.renderAfterPopupClose()
 		return true
-	case PopupUpdate:
-		t.renderPopup(top)
-		t.renderInputBox()
-		t.renderStatus()
-		return true
-	default:
-		return false
 	}
+	return false
 }
 
 // processPopupKey is called from processKey when a popup is active
 // and the key wasn't consumed by the ReadLine dispatch.
+// Same lock contract as handlePopupKey.
 func (t *TUI) processPopupKey(k keyEvent) {
-	if k.r == 27 || (k.ctrl && (k.r == 'c' || k.r == 'C')) {
-		return // Esc/Ctrl+C handled elsewhere
+	if k.ctrl && (k.r == 'c' || k.r == 'C') {
+		return // Ctrl+C handled by ReadLine
 	}
+
 	top := t.popups[len(t.popups)-1]
 	if top.OnKey == nil {
 		return
 	}
-	switch top.OnKey(keyEventFromInternal(k)) {
+
+	onKey := top.OnKey
+	key := keyEventFromInternal(k)
+	t.mu.Unlock()
+	action := onKey(key)
+	t.mu.Lock()
+
+	if len(t.popups) == 0 {
+		t.renderAfterPopupClose()
+		return
+	}
+	top = t.popups[len(t.popups)-1]
+
+	switch action {
 	case PopupClose:
 		t.popPopup()
 		t.renderAfterPopupClose()
 	case PopupUpdate:
 		t.renderPopup(top)
+	default:
+		// Passthrough — ESC closes popup as default.
+		if k.r == 27 {
+			t.popPopup()
+			t.renderAfterPopupClose()
+		}
 	}
 }
 

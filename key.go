@@ -245,12 +245,17 @@ func parseNums(b []byte) []int {
 
 // Key constants for KeyEvent.Special.
 const (
-	KeyUp    = keyUp
-	KeyDown  = keyDown
-	KeyLeft  = keyLeft
-	KeyRight = keyRight
-	KeyHome  = keyHome
-	KeyEnd   = keyEnd
+	KeyUp           = keyUp
+	KeyDown         = keyDown
+	KeyLeft         = keyLeft
+	KeyRight        = keyRight
+	KeyHome         = keyHome
+	KeyEnd          = keyEnd
+	KeyBackspace    = keyBackspace
+	KeyTab          = keyTab
+	KeyForwardDelete = keyForwardDelete
+	KeyPageUp       = keyPageUp
+	KeyPageDown     = keyPageDown
 )
 
 // ── input editor ─────────────────────────────────────────────────
