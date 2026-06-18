@@ -415,7 +415,11 @@ func (t *TUI) emitLine(raw string) {
 		t.maybeInsertGap()
 	}
 
-	t.appendRendered(t.renderLine(raw, &t.tableBuf, false))
+	// Skip empty returns from table buffering (real empty lines emit "").
+	r := t.renderLine(raw, &t.tableBuf, false)
+	if r != "" || raw == "" {
+		t.appendRendered(r)
+	}
 }
 
 func (t *TUI) maybeInsertGap() {
@@ -447,12 +451,8 @@ func (t *TUI) flushTable() {
 	t.tableBuf = nil
 }
 
-// appendRendered adds a rendered line (may be empty for buffered table lines).
-// Long lines are word-wrapped so each entry fits within t.width columns.
+// appendRendered adds a rendered line. Long lines are word-wrapped.
 func (t *TUI) appendRendered(s string) {
-	if s == "" {
-		return
-	}
 	for _, line := range wrapToWidth(s, t.width) {
 		t.outAnsi = append(t.outAnsi, line)
 	}
