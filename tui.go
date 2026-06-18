@@ -458,7 +458,9 @@ func (t *TUI) appendRendered(s string) {
 	}
 }
 
-// commitOverflow pushes content lines beyond vis into scrollback.
+// commitOverflow pushes content lines beyond the visible area into the
+// terminal's native scrollback via a temporary scroll region. After this
+// call, renderOutputScreen MUST be invoked to re-paint the visible area.
 func (t *TUI) commitOverflow() {
 	vis := t.outputRows()
 	if vis > t.height-3 {
@@ -467,24 +469,28 @@ func (t *TUI) commitOverflow() {
 	if vis <= 0 || len(t.outAnsi) <= vis {
 		return
 	}
-	need := len(t.outAnsi) - vis
-	if t.pushed >= len(t.outAnsi)-vis {
+	// Only commit lines strictly above the visible window.
+	visibleStart := len(t.outAnsi) - vis
+	if visibleStart < 0 {
+		visibleStart = 0
+	}
+	if t.pushed >= visibleStart {
 		return
 	}
 	start := t.pushed
-	end := start + need
-	if end > len(t.outAnsi) {
-		end = len(t.outAnsi)
-	}
+	end := visibleStart
 	newLines := t.outAnsi[start:end]
 	t.pushed = end
 
+	// Push newLines into scrollback by scrolling a temporary region.
 	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", vis)
 	fmt.Fprintf(os.Stdout, "\x1b[%d;1H", vis)
 	for _, line := range newLines {
 		// Wrap with reset to prevent ANSI background bleed in scrollback.
 		fmt.Fprintf(os.Stdout, "\x1b[0m%s\x1b[0m\r\n", line)
 	}
+	// Restore full-screen scroll region so that subsequent writeRow
+	// calls (absolute positioning) are not clipped.
 	fmt.Fprint(os.Stdout, "\x1b[r")
 	os.Stdout.Sync()
 }
@@ -497,13 +503,18 @@ func (t *TUI) renderAfterWrite() {
 		return
 	}
 
-	// 1. Commit overflowing content lines to scrollback (skip blank spacing).
+	// 1. Flush any lingering table buffer (e.g. last line was a table row).
+	if len(t.tableBuf) > 0 {
+		t.flushTable()
+	}
+
+	// 2. Commit overflowing content lines to scrollback.
 	t.commitOverflow()
 
-	// 2. Render visible output rows.
+	// 3. Render visible output rows.
 	t.renderOutputScreen()
 
-	// 3. Re-render overlay (input box + status bar) to fix any corruption.
+	// 4. Re-render overlay (input box + status bar) to fix any corruption.
 	t.renderInputBox()
 	t.renderStatus()
 
@@ -682,6 +693,17 @@ func (t *TUI) clearInput() {
 	t.inScrollRow = 0
 	t.inHeight = 1
 	t.exitHistory()
+
+	// Reset render state to prevent cross-submission leaks.
+	// Flush any lingering table rows, then clear all block-level state.
+	if len(t.tableBuf) > 0 {
+		t.flushTable()
+	}
+	t.tableBuf = nil
+	t.inCodeBlock = false
+	t.codeLang = ""
+	t.pendingGap = false
+
 	t.renderOutputScreen()
 }
 
@@ -819,7 +841,11 @@ func (t *TUI) scrollOutputUp(rows int) {
 	}
 
 	fmt.Fprint(os.Stdout, "\x1b[r") // restore full-screen
-	t.pushed += rows
+	// pushed must account for lines that were pushed starting at `start`,
+	// not blindly increment by rows (which would be wrong when pushed < start).
+	if t.pushed < start+rows {
+		t.pushed = start + rows
+	}
 }
 
 func (t *TUI) handleResize() {

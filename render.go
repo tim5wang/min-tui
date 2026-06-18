@@ -174,9 +174,15 @@ func (t *TUI) renderLine(raw string, tableBuf *[]string, forceDim bool) string {
 		*tableBuf = append(*tableBuf, raw)
 		return ""
 	}
-	// Blockquote: > text (gray bg, clear-to-EOL before reset).
+	// Blockquote: > text (gray bg, content only, no > prefix).
 	if isBlockquote(raw) {
-		return "\x1b[100m" + padTo(raw, t.width) + ansiReset
+		content := raw
+		if strings.HasPrefix(content, "> ") {
+			content = content[2:]
+		} else if content == ">" {
+			content = ""
+		}
+		return "\x1b[100m" + padTo(content, t.width) + ansiReset
 	}
 	if forceDim {
 		return ansiDim + raw + ansiReset
