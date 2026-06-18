@@ -482,7 +482,8 @@ func (t *TUI) commitOverflow() {
 	fmt.Fprintf(os.Stdout, "\x1b[1;%dr", vis)
 	fmt.Fprintf(os.Stdout, "\x1b[%d;1H", vis)
 	for _, line := range newLines {
-		fmt.Fprintf(os.Stdout, "%s\r\n", line)
+		// Wrap with reset to prevent ANSI background bleed in scrollback.
+		fmt.Fprintf(os.Stdout, "\x1b[0m%s\x1b[0m\r\n", line)
 	}
 	fmt.Fprint(os.Stdout, "\x1b[r")
 	os.Stdout.Sync()
@@ -814,7 +815,7 @@ func (t *TUI) scrollOutputUp(rows int) {
 		if start+i < len(t.outAnsi) {
 			line = t.outAnsi[start+i]
 		}
-		fmt.Fprintf(os.Stdout, "%s\r\n", line)
+		fmt.Fprintf(os.Stdout, "\x1b[0m%s\x1b[0m\r\n", line)
 	}
 
 	fmt.Fprint(os.Stdout, "\x1b[r") // restore full-screen

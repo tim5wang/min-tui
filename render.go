@@ -152,7 +152,8 @@ func (t *TUI) writeRow(row int, s string) {
 	if row < 0 || row >= t.height {
 		return
 	}
-	fmt.Fprintf(os.Stdout, "\x1b[s\x1b[%d;1H\x1b[K%s\x1b[K\x1b[u", row+1, s)
+	// \x1b[0m before \x1b[K ensures no stale background colors linger.
+	fmt.Fprintf(os.Stdout, "\x1b[s\x1b[%d;1H\x1b[0m\x1b[K%s\x1b[K\x1b[u", row+1, s)
 }
 
 // ── markdown → ANSI ─────────────────────────────────────────────
