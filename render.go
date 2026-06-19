@@ -93,7 +93,7 @@ func takeRunesWidth(rs []rune, start, maxWidth int) (end, w int) {
 	for end = start; end < len(rs); end++ {
 		rl := rs[end]
 		rw := runeWidth(rl)
-		if rl == '\t' { rw = 4 }
+		if rl == '\t' { rw = tabWidth }
 		if w+rw > maxWidth { break }
 		w += rw
 	}
@@ -105,6 +105,7 @@ func takeRunesWidth(rs []rune, start, maxWidth int) (end, w int) {
 // indent (2 spaces) and re-apply the initial ANSI style.
 func wrapToWidth(ansi string, width int) []string {
 	if width < 4 { return []string{ansi} }
+	ansi = expandTabs(ansi)
 	plain := stripAnsi(ansi)
 	if displayWidth(plain) <= width {
 		return []string{ansi}
@@ -323,12 +324,19 @@ func displayWidth(s string) int {
 	w := 0
 	for _, r := range s {
 		if r == '\t' {
-			w += 4
+			w += tabWidth
 		} else {
 			w += runeWidth(r)
 		}
 	}
 	return w
+}
+
+func expandTabs(s string) string {
+	if !strings.ContainsRune(s, '\t') {
+		return s
+	}
+	return strings.ReplaceAll(s, "\t", strings.Repeat(" ", tabWidth))
 }
 
 func runeWidth(r rune) int {
@@ -355,12 +363,16 @@ func pad(s string, w int) string {
 		for _, r := range s {
 			rw := runeWidth(r)
 			if r == '\t' {
-				rw = 4
+				rw = tabWidth
 			}
 			if cur+rw > w {
 				break
 			}
-			b.WriteRune(r)
+			if r == '\t' {
+				b.WriteString(strings.Repeat(" ", tabWidth))
+			} else {
+				b.WriteRune(r)
+			}
 			cur += rw
 		}
 		for cur < w {
@@ -369,13 +381,14 @@ func pad(s string, w int) string {
 		}
 		return b.String()
 	}
-	s = strings.ReplaceAll(s, "\t", "    ")
+	s = expandTabs(s)
 	return s + strings.Repeat(" ", w-dw)
 }
 
 // bgPadLine wraps an ANSI-styled visual line with a full-width background.
 // The given bg is prepended; trailing space (if any) extends the bg to width.
 func bgPadLine(ansiLine string, bg string, width int) string {
+	ansiLine = expandTabs(ansiLine)
 	dw := displayWidth(stripAnsi(ansiLine))
 	padding := ""
 	if dw < width {

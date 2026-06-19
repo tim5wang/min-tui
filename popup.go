@@ -345,10 +345,17 @@ func padTo(s string, w int) string {
 		cur := 0
 		for _, r := range s {
 			rw := runeWidth(r)
+			if r == '\t' {
+				rw = tabWidth
+			}
 			if cur+rw > w {
 				break
 			}
-			b.WriteRune(r)
+			if r == '\t' {
+				b.WriteString(strings.Repeat(" ", tabWidth))
+			} else {
+				b.WriteRune(r)
+			}
 			cur += rw
 		}
 		for cur < w {
@@ -357,5 +364,6 @@ func padTo(s string, w int) string {
 		}
 		return b.String()
 	}
+	s = expandTabs(s)
 	return s + strings.Repeat(" ", w-dw)
 }

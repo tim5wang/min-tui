@@ -45,6 +45,8 @@ const (
 	// 256-color dark backgrounds for visual block distinction.
 	ansiCodeBg = "\x1b[48;5;235m" // dark charcoal for code blocks
 	ansiDiffBg = "\x1b[48;5;236m" // slightly lighter for diff blocks
+
+	tabWidth = 4
 )
 
 // EventType describes what kind of event occurred.
