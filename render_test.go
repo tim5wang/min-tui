@@ -114,6 +114,39 @@ func TestStreamingTableWaitsForTerminatorBeforeRendering(t *testing.T) {
 	}
 }
 
+func TestTableWrapsLongCellsInsideColumns(t *testing.T) {
+	rendered := renderTable([]string{
+		"| 设计决策 | 理由 |",
+		"| --- | --- |",
+		"| adapter 与 longtask 同一 package(internal/agent/) | 直接复用未导出的 workflowNodeInput/longTaskStoryInput/longTaskArgs,不污染公共 API,不引入循环引用 |",
+	}, 52)
+	lines := strings.Split(rendered, "\n")
+
+	if len(lines) < 5 {
+		t.Fatalf("expected wrapped table to span multiple rows, got %d: %q", len(lines), rendered)
+	}
+	for _, line := range lines {
+		if displayWidth(stripAnsi(line)) > 52 {
+			t.Fatalf("table line width = %d, want <= 52; line=%q", displayWidth(stripAnsi(line)), line)
+		}
+		if !strings.HasPrefix(line, "│ ") {
+			t.Fatalf("wrapped table line lost left border: %q", line)
+		}
+		if strings.HasPrefix(line, "| ") {
+			t.Fatalf("wrapped table line rendered as raw markdown: %q", line)
+		}
+	}
+	plain := stripAnsi(rendered)
+	for _, want := range []string{"adapter 与 longt", "workflowNod", "ngTaskArgs"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("wrapped table lost cell content %q: %q", want, rendered)
+		}
+	}
+	if strings.Contains(plain, "| adapter") {
+		t.Fatalf("wrapped table lost cell content: %q", rendered)
+	}
+}
+
 func TestCodeFenceMarkersAreNotRendered(t *testing.T) {
 	cases := []struct {
 		name  string

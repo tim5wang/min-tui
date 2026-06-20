@@ -220,17 +220,122 @@ func renderTable(buf []string, width int) string {
 		}
 		widths[i] = w + 2
 	}
+	widths = fitTableWidths(widths, width)
+
 	var out []string
-	out = append(out, tableRow(hdr, widths, true))
+	out = append(out, tableWrappedRow(hdr, widths, true)...)
 	sep := make([]string, ncols)
 	for i := 0; i < ncols; i++ {
 		sep[i] = strings.Repeat("─", widths[i])
 	}
 	out = append(out, tableRow(sep, widths, false))
 	for _, r := range rows {
-		out = append(out, tableRow(r, widths, false))
+		out = append(out, tableWrappedRow(r, widths, false)...)
 	}
 	return strings.Join(out, "\n")
+}
+
+func fitTableWidths(widths []int, totalWidth int) []int {
+	if len(widths) == 0 {
+		return widths
+	}
+	out := append([]int(nil), widths...)
+	available := totalWidth - 2 - 3*len(out)
+	if available <= 0 {
+		available = len(out)
+	}
+	minWidth := 4
+	if available/len(out) < minWidth {
+		minWidth = 1
+	}
+	sum := 0
+	for i, w := range out {
+		if w < minWidth {
+			out[i] = minWidth
+			w = minWidth
+		}
+		sum += w
+	}
+	if sum <= available {
+		return out
+	}
+	for sum > available {
+		flex := 0
+		for _, w := range out {
+			if w > minWidth {
+				flex += w - minWidth
+			}
+		}
+		if flex == 0 {
+			break
+		}
+		over := sum - available
+		for i, w := range out {
+			if w <= minWidth {
+				continue
+			}
+			cut := over * (w - minWidth) / flex
+			if cut < 1 {
+				cut = 1
+			}
+			if cut > w-minWidth {
+				cut = w - minWidth
+			}
+			out[i] -= cut
+			sum -= cut
+			if sum <= available {
+				break
+			}
+		}
+	}
+	return out
+}
+
+func tableWrappedRow(cols []string, widths []int, bold bool) []string {
+	wrapped := make([][]string, len(widths))
+	height := 1
+	for i := range widths {
+		txt := ""
+		if i < len(cols) {
+			txt = cols[i]
+		}
+		wrapped[i] = wrapCell(txt, widths[i])
+		if len(wrapped[i]) > height {
+			height = len(wrapped[i])
+		}
+	}
+	out := make([]string, 0, height)
+	for row := 0; row < height; row++ {
+		parts := make([]string, len(widths))
+		for col := range widths {
+			if row < len(wrapped[col]) {
+				parts[col] = wrapped[col][row]
+			}
+		}
+		out = append(out, tableRow(parts, widths, bold))
+	}
+	return out
+}
+
+func wrapCell(s string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	s = expandTabs(s)
+	if s == "" {
+		return []string{""}
+	}
+	rs := []rune(s)
+	var out []string
+	for pos := 0; pos < len(rs); {
+		end, _ := takeRunesWidth(rs, pos, width)
+		if end == pos {
+			end = pos + 1
+		}
+		out = append(out, string(rs[pos:end]))
+		pos = end
+	}
+	return out
 }
 
 func tableRow(cols []string, widths []int, bold bool) string {
