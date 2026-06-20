@@ -529,18 +529,13 @@ func (t *TUI) renderAfterWrite() {
 		return
 	}
 
-	// 1. Flush any lingering table buffer (e.g. last line was a table row).
-	if len(t.tableBuf) > 0 {
-		t.flushTable()
-	}
-
-	// 2. Commit overflowing content lines to scrollback.
+	// 1. Commit overflowing content lines to scrollback.
 	t.commitOverflow()
 
-	// 3. Render visible output rows.
+	// 2. Render visible output rows.
 	t.renderOutputScreen()
 
-	// 4. Re-render overlay (input box + status bar) to fix any corruption.
+	// 3. Re-render overlay (input box + status bar) to fix any corruption.
 	t.renderInputBox()
 	t.renderStatus()
 

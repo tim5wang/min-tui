@@ -84,6 +84,36 @@ func TestRenderedDiffLinesArePaddedWhenWrittenAsAnsiText(t *testing.T) {
 	}
 }
 
+func TestStreamingTableWaitsForTerminatorBeforeRendering(t *testing.T) {
+	tui := &TUI{
+		width:    120,
+		height:   20,
+		inHeight: 1,
+		inLines:  [][]rune{{}},
+	}
+
+	tui.appendOutput([]byte("| 设计决策 | 理由 |\n| --- | --- |\n"))
+	tui.renderAfterWrite()
+
+	if len(tui.outAnsi) != 0 {
+		t.Fatalf("table flushed before rows arrived: %q", tui.outAnsi)
+	}
+
+	tui.appendOutput([]byte("| adapter 与 longtask 同一 package(internal/agent/) | 直接复用未导出的 workflowNodeInput/longTaskStoryInput/longTaskArgs |\n\n"))
+	tui.renderAfterWrite()
+
+	rendered := strings.Join(tui.outAnsi, "\n")
+	if !strings.Contains(rendered, "│ ") {
+		t.Fatalf("table was not rendered with box separators: %q", rendered)
+	}
+	if strings.Contains(rendered, "| adapter 与 longtask") {
+		t.Fatalf("table row rendered as raw markdown: %q", rendered)
+	}
+	if !strings.Contains(stripAnsi(rendered), "adapter 与 longtask") {
+		t.Fatalf("table row content missing: %q", rendered)
+	}
+}
+
 func TestCodeFenceMarkersAreNotRendered(t *testing.T) {
 	cases := []struct {
 		name  string
