@@ -395,8 +395,6 @@ func (t *TUI) emitLine(raw string) {
 			t.codeLang = ""
 			t.pendingGap = t.spacious
 		}
-		// Fence lines: dim only, no background fill.
-		t.appendRendered(t.renderLine(raw, nil, true))
 		return
 	}
 
@@ -463,8 +461,19 @@ func (t *TUI) flushTable() {
 // appendRendered adds a rendered line. Long lines are word-wrapped.
 func (t *TUI) appendRendered(s string) {
 	for _, line := range wrapToWidth(s, t.width) {
+		if hasActiveBackground(line) {
+			line = padActiveBackgroundLine(line, t.width)
+		}
 		t.outAnsi = append(t.outAnsi, line)
 	}
+}
+
+func padActiveBackgroundLine(line string, width int) string {
+	dw := displayWidth(stripAnsi(line))
+	if dw < width {
+		line += strings.Repeat(" ", width-dw)
+	}
+	return line + ansiReset
 }
 
 // appendCodeLine adds an ANSI-styled code line with full-width code background.

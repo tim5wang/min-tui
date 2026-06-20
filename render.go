@@ -339,6 +339,70 @@ func expandTabs(s string) string {
 	return strings.ReplaceAll(s, "\t", strings.Repeat(" ", tabWidth))
 }
 
+func keepBgAcrossReset(s, bg string) string {
+	if !strings.Contains(s, ansiReset) {
+		return s
+	}
+	return strings.ReplaceAll(s, ansiReset, ansiReset+bg)
+}
+
+func hasActiveBackground(s string) bool {
+	active := false
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\x1b' || i+1 >= len(s) || s[i+1] != '[' {
+			continue
+		}
+		j := i + 2
+		for j < len(s) && ((s[j] >= 0x30 && s[j] <= 0x3F) || (s[j] >= 0x20 && s[j] <= 0x2F)) {
+			j++
+		}
+		if j >= len(s) {
+			break
+		}
+		if s[j] == 'm' {
+			active = applySGRBackground(active, s[i+2:j])
+		}
+		i = j
+	}
+	return active
+}
+
+func applySGRBackground(active bool, params string) bool {
+	if params == "" {
+		return false
+	}
+	for _, p := range strings.Split(params, ";") {
+		if p == "" {
+			p = "0"
+		}
+		n, ok := parseSGRParam(p)
+		if !ok {
+			continue
+		}
+		switch {
+		case n == 0 || n == 49:
+			active = false
+		case (n >= 40 && n <= 47) || (n >= 100 && n <= 107) || n == 48:
+			active = true
+		}
+	}
+	return active
+}
+
+func parseSGRParam(s string) (int, bool) {
+	n := 0
+	if s == "" {
+		return 0, false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return 0, false
+		}
+		n = n*10 + int(s[i]-'0')
+	}
+	return n, true
+}
+
 func runeWidth(r rune) int {
 	if r == 0 { return 0 }
 	switch {
@@ -389,6 +453,7 @@ func pad(s string, w int) string {
 // The given bg is prepended; trailing space (if any) extends the bg to width.
 func bgPadLine(ansiLine string, bg string, width int) string {
 	ansiLine = expandTabs(ansiLine)
+	ansiLine = keepBgAcrossReset(ansiLine, bg)
 	dw := displayWidth(stripAnsi(ansiLine))
 	padding := ""
 	if dw < width {
