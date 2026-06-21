@@ -126,13 +126,14 @@ func TestTableWrapsLongCellsInsideColumns(t *testing.T) {
 		t.Fatalf("expected wrapped table to span multiple rows, got %d: %q", len(lines), rendered)
 	}
 	for _, line := range lines {
-		if displayWidth(stripAnsi(line)) > 52 {
-			t.Fatalf("table line width = %d, want <= 52; line=%q", displayWidth(stripAnsi(line)), line)
+		plainLine := stripAnsi(line)
+		if displayWidth(plainLine) > 52 {
+			t.Fatalf("table line width = %d, want <= 52; line=%q", displayWidth(plainLine), line)
 		}
-		if !strings.HasPrefix(line, "│ ") {
+		if !strings.HasPrefix(plainLine, "│ ") {
 			t.Fatalf("wrapped table line lost left border: %q", line)
 		}
-		if strings.HasPrefix(line, "| ") {
+		if strings.HasPrefix(plainLine, "| ") {
 			t.Fatalf("wrapped table line rendered as raw markdown: %q", line)
 		}
 	}
@@ -144,6 +145,45 @@ func TestTableWrapsLongCellsInsideColumns(t *testing.T) {
 	}
 	if strings.Contains(plain, "| adapter") {
 		t.Fatalf("wrapped table lost cell content: %q", rendered)
+	}
+}
+
+func TestTableRowsUseSubtleAlternatingBackgrounds(t *testing.T) {
+	rendered := renderTable([]string{
+		"| Name | Notes |",
+		"| --- | --- |",
+		"| one | alpha beta gamma delta epsilon zeta eta theta |",
+		"| two | short |",
+	}, 32)
+	lines := strings.Split(rendered, "\n")
+
+	if len(lines) < 5 {
+		t.Fatalf("expected wrapped table rows, got %d: %q", len(lines), rendered)
+	}
+	if !strings.HasPrefix(lines[0], ansiTableHeaderBg) {
+		t.Fatalf("header row missing table header bg: %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], ansiTableHeaderBg) {
+		t.Fatalf("separator row missing table header bg: %q", lines[1])
+	}
+	firstBodyBg := ""
+	firstBodyLines := 0
+	for _, line := range lines[2:] {
+		if strings.Contains(stripAnsi(line), "two") {
+			break
+		}
+		firstBodyLines++
+		if !strings.HasPrefix(line, ansiTableBodyBgA) {
+			t.Fatalf("first body visual line missing body A bg: %q", line)
+		}
+		firstBodyBg = ansiTableBodyBgA
+	}
+	if firstBodyLines < 2 || firstBodyBg == "" {
+		t.Fatalf("expected first body row to wrap across multiple bg-stable lines: %q", rendered)
+	}
+	secondBody := lines[2+firstBodyLines]
+	if !strings.HasPrefix(secondBody, ansiTableBodyBgB) {
+		t.Fatalf("second body row missing body B bg: %q", secondBody)
 	}
 }
 

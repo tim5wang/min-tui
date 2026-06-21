@@ -46,6 +46,10 @@ const (
 	ansiCodeBg = "\x1b[48;5;235m" // dark charcoal for code blocks
 	ansiDiffBg = "\x1b[48;5;236m" // slightly lighter for diff blocks
 
+	ansiTableHeaderBg = "\x1b[48;5;238m"
+	ansiTableBodyBgA  = "\x1b[48;5;234m"
+	ansiTableBodyBgB  = "\x1b[48;5;236m"
+
 	tabWidth = 4
 )
 

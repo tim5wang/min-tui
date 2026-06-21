@@ -223,14 +223,18 @@ func renderTable(buf []string, width int) string {
 	widths = fitTableWidths(widths, width)
 
 	var out []string
-	out = append(out, tableWrappedRow(hdr, widths, true)...)
+	out = append(out, tableWrappedRow(hdr, widths, true, ansiTableHeaderBg)...)
 	sep := make([]string, ncols)
 	for i := 0; i < ncols; i++ {
 		sep[i] = strings.Repeat("─", widths[i])
 	}
-	out = append(out, tableRow(sep, widths, false))
-	for _, r := range rows {
-		out = append(out, tableWrappedRow(r, widths, false)...)
+	out = append(out, tableRow(sep, widths, false, ansiTableHeaderBg))
+	for i, r := range rows {
+		bg := ansiTableBodyBgA
+		if i%2 == 1 {
+			bg = ansiTableBodyBgB
+		}
+		out = append(out, tableWrappedRow(r, widths, false, bg)...)
 	}
 	return strings.Join(out, "\n")
 }
@@ -291,7 +295,7 @@ func fitTableWidths(widths []int, totalWidth int) []int {
 	return out
 }
 
-func tableWrappedRow(cols []string, widths []int, bold bool) []string {
+func tableWrappedRow(cols []string, widths []int, bold bool, bg string) []string {
 	wrapped := make([][]string, len(widths))
 	height := 1
 	for i := range widths {
@@ -312,7 +316,7 @@ func tableWrappedRow(cols []string, widths []int, bold bool) []string {
 				parts[col] = wrapped[col][row]
 			}
 		}
-		out = append(out, tableRow(parts, widths, bold))
+		out = append(out, tableRow(parts, widths, bold, bg))
 	}
 	return out
 }
@@ -338,8 +342,11 @@ func wrapCell(s string, width int) []string {
 	return out
 }
 
-func tableRow(cols []string, widths []int, bold bool) string {
+func tableRow(cols []string, widths []int, bold bool, bg string) string {
 	var b strings.Builder
+	if bg != "" {
+		b.WriteString(bg)
+	}
 	b.WriteString("│ ")
 	for i := 0; i < len(widths); i++ {
 		txt := ""
@@ -348,10 +355,16 @@ func tableRow(cols []string, widths []int, bold bool) string {
 		}
 		if bold {
 			b.WriteString(ansiBold + pad(txt, widths[i]) + ansiReset)
+			if bg != "" {
+				b.WriteString(bg)
+			}
 		} else {
 			b.WriteString(pad(txt, widths[i]))
 		}
 		b.WriteString(" │ ")
+	}
+	if bg != "" {
+		b.WriteString(ansiReset)
 	}
 	return b.String()
 }
