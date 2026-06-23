@@ -13,10 +13,8 @@ package minitui
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 
 	"golang.org/x/term"
 )
@@ -289,7 +287,7 @@ func NewWithConfig(cfg Config) (*TUI, error) {
 	fmt.Fprint(os.Stdout, "\x1b[?2004h\x1b[>1u\x1b[>4;2m")
 	fmt.Fprint(os.Stdout, "\x1b[?25l")
 	fmt.Fprint(os.Stdout, "\x1b[r") // full-screen scroll region (virtual rendering)
-	signal.Notify(t.sigCh, syscall.SIGWINCH)
+	setupSignals(t.sigCh)
 
 	t.fullDraw()
 	return t, nil
@@ -303,7 +301,7 @@ func (t *TUI) Close() {
 	fmt.Fprint(os.Stdout, "\x1b[?2004l\x1b[<u\x1b[>4;0m\x1b[?25h")
 	fmt.Fprint(os.Stdout, "\x1b[2J\x1b[H")
 	term.Restore(t.stdinFd, t.oldState)
-	signal.Stop(t.sigCh)
+	teardownSignals(t.sigCh)
 }
 
 // ── layout ───────────────────────────────────────────────────────
